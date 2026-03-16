@@ -92,6 +92,25 @@ export function cancelTask(id: string) {
   });
 }
 
+// Scans
+export function scanProject(projectId: string) {
+  return request<{ data: { scan_id: string } }>(`/api/projects/${projectId}/scan`, {
+    method: "POST",
+  });
+}
+
+export function fetchScans(projectId: string) {
+  return request<{ data: import("@/types").ScanSession[] }>(
+    `/api/projects/${projectId}/scans`
+  );
+}
+
+export function fetchScanResult(scanId: string) {
+  return request<{ data: import("@/types").ScanResult }>(
+    `/api/scans/${scanId}`
+  );
+}
+
 // Executions
 export function fetchExecutions(taskId: string) {
   return request<{ data: import("@/types").ExecutionSession[] }>(

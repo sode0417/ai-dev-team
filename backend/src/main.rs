@@ -6,6 +6,7 @@ mod error;
 mod executor;
 pub mod github;
 mod response;
+mod scanner;
 mod ws;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -65,7 +66,8 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
     let recent_tasks: Vec<domains::tasks::model::Task> = sqlx::query_as(
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
+         scan_id, proposal_type \
          FROM tasks ORDER BY updated_at DESC LIMIT 10",
     )
     .fetch_all(&state.pool)
@@ -86,13 +88,13 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
-    Path(task_id): Path<Uuid>,
+    Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws(socket, state, task_id))
+    ws.on_upgrade(move |socket| handle_ws(socket, state, id))
 }
 
-async fn handle_ws(mut socket: WebSocket, state: AppState, task_id: Uuid) {
-    let mut rx = state.ws_hub.subscribe(task_id).await;
+async fn handle_ws(mut socket: WebSocket, state: AppState, id: Uuid) {
+    let mut rx = state.ws_hub.subscribe(id).await;
 
     loop {
         tokio::select! {
@@ -160,6 +162,8 @@ async fn main() {
         .route("/api/health", axum::routing::get(health_check))
         .route("/api/dashboard", axum::routing::get(dashboard))
         .nest("/api/projects", domains::projects::handler::routes())
+        .merge(Router::new().nest("/api/projects", domains::scans::handler::project_routes()))
+        .nest("/api/scans", domains::scans::handler::scan_routes())
         .nest("/api/tasks", domains::tasks::handler::routes())
         .merge(
             Router::new()
@@ -167,6 +171,7 @@ async fn main() {
                 .nest("/api/executions", domains::executions::handler::execution_routes()),
         )
         .route("/ws/executions/{task_id}", axum::routing::get(ws_handler))
+        .route("/ws/scans/{scan_id}", axum::routing::get(ws_handler))
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer())
         .with_state(state);

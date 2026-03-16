@@ -3,6 +3,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GitHubCommit {
+    pub sha: String,
+    pub commit: GitHubCommitDetail,
+    pub html_url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GitHubCommitDetail {
+    pub message: String,
+    pub author: Option<GitHubCommitAuthor>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GitHubCommitAuthor {
+    pub name: String,
+    pub date: Option<DateTime<Utc>>,
+}
+
 #[derive(Clone)]
 pub struct GitHubClient {
     client: reqwest::Client,
@@ -109,5 +128,18 @@ impl GitHubClient {
         );
         let pulls: Vec<GitHubPullRequest> = self.request(&url).send().await?.json().await?;
         Ok(pulls)
+    }
+
+    pub async fn fetch_commits(
+        &self,
+        owner: &str,
+        repo: &str,
+        per_page: u32,
+    ) -> Result<Vec<GitHubCommit>, AppError> {
+        let url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/commits?per_page={per_page}"
+        );
+        let commits: Vec<GitHubCommit> = self.request(&url).send().await?.json().await?;
+        Ok(commits)
     }
 }

@@ -53,6 +53,8 @@ export interface Task {
   started_at: string | null;
   completed_at: string | null;
   updated_at: string;
+  scan_id: string | null;
+  proposal_type: string;
 }
 
 export interface ExecutionSession {
@@ -93,6 +95,35 @@ export interface DashboardData {
 
 export interface WsMessage {
   task_id: string;
+  phase: string;
+  message: string;
+}
+
+export interface ScanSession {
+  id: string;
+  project_id: string;
+  status: string;
+  analysis: string | null;
+  priority_actions: string[] | null;
+  retrospective: string | null;
+  improvement_suggestions: ImprovementSuggestion[] | null;
+  error_log: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface ImprovementSuggestion {
+  target: string;
+  description: string;
+  reason: string;
+}
+
+export interface ScanResult extends ScanSession {
+  tasks: Task[];
+}
+
+export interface ScanWsMessage {
+  scan_id: string;
   phase: string;
   message: string;
 }
