@@ -146,6 +146,23 @@ pub async fn add_repository(
     Ok(repo)
 }
 
+pub async fn get_repository(
+    pool: &PgPool,
+    project_id: Uuid,
+    repo_id: Uuid,
+) -> Result<ProjectRepository, AppError> {
+    let repo: ProjectRepository = sqlx::query_as(
+        "SELECT id, project_id, owner, name, default_branch, local_path, created_at FROM project_repositories WHERE id = $1 AND project_id = $2",
+    )
+    .bind(repo_id)
+    .bind(project_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    Ok(repo)
+}
+
 pub async fn delete_repository(pool: &PgPool, project_id: Uuid, repo_id: Uuid) -> Result<(), AppError> {
     let result = sqlx::query("DELETE FROM project_repositories WHERE id = $1 AND project_id = $2")
         .bind(repo_id)

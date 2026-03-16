@@ -104,3 +104,34 @@ export function fetchExecutionLogs(sessionId: string) {
     `/api/executions/${sessionId}/logs`
   );
 }
+
+// GitHub Issues / PRs
+export function fetchRepositoryIssues(
+  projectId: string,
+  repoId: string,
+  params?: { state?: string; page?: number; per_page?: number }
+) {
+  const query = new URLSearchParams();
+  if (params?.state) query.set("state", params.state);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.per_page) query.set("per_page", String(params.per_page));
+  const qs = query.toString();
+  return request<{ data: import("@/types").GitHubIssue[] }>(
+    `/api/projects/${projectId}/repositories/${repoId}/issues${qs ? `?${qs}` : ""}`
+  );
+}
+
+export function fetchRepositoryPulls(
+  projectId: string,
+  repoId: string,
+  params?: { state?: string; page?: number; per_page?: number }
+) {
+  const query = new URLSearchParams();
+  if (params?.state) query.set("state", params.state);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.per_page) query.set("per_page", String(params.per_page));
+  const qs = query.toString();
+  return request<{ data: import("@/types").GitHubPullRequest[] }>(
+    `/api/projects/${projectId}/repositories/${repoId}/pulls${qs ? `?${qs}` : ""}`
+  );
+}

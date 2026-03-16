@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { Sidebar } from "@/components/Sidebar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,27 +24,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ja">
+    <html lang="ja" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gh-canvas text-gh-text`}
       >
         <div className="min-h-screen flex">
-          <nav className="w-56 bg-slate-900 text-slate-200 p-4 flex flex-col gap-2">
-            <h1 className="text-lg font-bold mb-4 text-white">AI Dev Team</h1>
-            <Link
-              href="/"
-              className="px-3 py-2 rounded hover:bg-slate-800 transition"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/tasks"
-              className="px-3 py-2 rounded hover:bg-slate-800 transition"
-            >
-              Tasks
-            </Link>
-          </nav>
-          <main className="flex-1 p-6">{children}</main>
+          <Sidebar />
+          <main className="flex-1 p-6 overflow-auto">{children}</main>
         </div>
       </body>
     </html>

@@ -48,3 +48,10 @@ pub struct AddRepositoryRequest {
     pub default_branch: Option<String>,
     pub local_path: Option<String>,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct GitHubListParams {
+    pub state: Option<String>,
+    pub page: Option<u32>,
+    pub per_page: Option<u32>,
+}

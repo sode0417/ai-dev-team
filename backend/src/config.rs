@@ -4,6 +4,7 @@ use std::env;
 pub struct Config {
     pub database_url: String,
     pub port: u16,
+    pub github_token: Option<String>,
 }
 
 impl Config {
@@ -14,6 +15,7 @@ impl Config {
                 .unwrap_or_else(|_| "8100".to_string())
                 .parse()
                 .expect("PORT must be a valid u16"),
+            github_token: env::var("GITHUB_TOKEN").ok(),
         }
     }
 }

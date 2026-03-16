@@ -56,3 +56,10 @@ impl From<sqlx::Error> for AppError {
         Self::Internal("Database error".to_string())
     }
 }
+
+impl From<reqwest::Error> for AppError {
+    fn from(err: reqwest::Error) -> Self {
+        tracing::error!("HTTP client error: {err:?}");
+        Self::Internal("GitHub API error".to_string())
+    }
+}

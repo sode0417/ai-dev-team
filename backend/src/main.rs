@@ -4,6 +4,7 @@ mod db;
 mod domains;
 mod error;
 mod executor;
+pub mod github;
 mod response;
 mod ws;
 
@@ -18,6 +19,7 @@ use std::net::SocketAddr;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
+use github::GitHubClient;
 use ws::WsHub;
 
 #[derive(Clone)]
@@ -25,6 +27,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
     pub ws_hub: WsHub,
+    pub github: GitHubClient,
 }
 
 async fn health_check() -> Json<Value> {
@@ -144,11 +147,13 @@ async fn main() {
     let config = Config::from_env();
     let pool = db::create_pool(&config.database_url).await;
     let ws_hub = WsHub::new();
+    let github = GitHubClient::new(config.github_token.clone());
 
     let state = AppState {
         pool,
         config: config.clone(),
         ws_hub,
+        github,
     };
 
     let app = Router::new()

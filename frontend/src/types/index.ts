@@ -96,3 +96,39 @@ export interface WsMessage {
   phase: string;
   message: string;
 }
+
+export interface GitHubLabel {
+  name: string;
+  color: string;
+}
+
+export interface GitHubUser {
+  login: string;
+  avatar_url: string;
+}
+
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: string;
+  body: string | null;
+  labels: GitHubLabel[];
+  user: GitHubUser | null;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  comments: number;
+}
+
+export interface GitHubPullRequest {
+  number: number;
+  title: string;
+  state: string;
+  draft: boolean | null;
+  user: GitHubUser | null;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+  head: { ref: string };
+  base: { ref: string };
+}
