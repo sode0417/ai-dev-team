@@ -1,0 +1,193 @@
+use std::path::{Path, PathBuf};
+use tokio::process::Command;
+use uuid::Uuid;
+
+/// git worktree を作成して分離された作業ディレクトリを返す
+pub async fn create_worktree(
+    repo_path: &str,
+    task_id: Uuid,
+    base_branch: &str,
+) -> Result<(PathBuf, String), String> {
+    let worktree_dir = Path::new(repo_path)
+        .join(".worktrees")
+        .join(format!("task-{}", task_id));
+    let branch_name = format!("task/{}", task_id);
+
+    // .worktrees ディレクトリを作成
+    tokio::fs::create_dir_all(worktree_dir.parent().unwrap())
+        .await
+        .map_err(|e| format!("Failed to create worktrees dir: {e}"))?;
+
+    // まず最新を fetch
+    let fetch = Command::new("git")
+        .args(["fetch", "origin", base_branch])
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("git fetch failed: {e}"))?;
+
+    if !fetch.status.success() {
+        tracing::warn!(
+            "git fetch warning: {}",
+            String::from_utf8_lossy(&fetch.stderr)
+        );
+    }
+
+    // worktree 作成（新ブランチ）
+    let output = Command::new("git")
+        .args([
+            "worktree",
+            "add",
+            "-b",
+            &branch_name,
+            worktree_dir.to_str().unwrap(),
+            &format!("origin/{base_branch}"),
+        ])
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("git worktree add failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "git worktree add failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    Ok((worktree_dir, branch_name))
+}
+
+/// git worktree を削除
+pub async fn cleanup_worktree(repo_path: &str, worktree_path: &Path) -> Result<(), String> {
+    // worktree ディレクトリを削除
+    if worktree_path.exists() {
+        tokio::fs::remove_dir_all(worktree_path)
+            .await
+            .map_err(|e| format!("Failed to remove worktree dir: {e}"))?;
+    }
+
+    // git worktree prune で参照を削除
+    let output = Command::new("git")
+        .args(["worktree", "prune"])
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("git worktree prune failed: {e}"))?;
+
+    if !output.status.success() {
+        tracing::warn!(
+            "git worktree prune warning: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(())
+}
+
+/// 変更があるかチェック
+pub async fn has_changes(worktree_path: &str) -> Result<bool, String> {
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git status failed: {e}"))?;
+
+    Ok(!output.stdout.is_empty())
+}
+
+/// git commit + push + gh pr create
+pub async fn commit_and_create_pr(
+    worktree_path: &str,
+    branch_name: &str,
+    title: &str,
+    body: &str,
+) -> Result<String, String> {
+    // git add
+    let add = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git add failed: {e}"))?;
+    if !add.status.success() {
+        return Err(format!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        ));
+    }
+
+    // git commit
+    let commit = Command::new("git")
+        .args(["commit", "-m", title])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git commit failed: {e}"))?;
+    if !commit.status.success() {
+        return Err(format!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        ));
+    }
+
+    // git push
+    let push = Command::new("git")
+        .args(["push", "-u", "origin", branch_name])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git push failed: {e}"))?;
+    if !push.status.success() {
+        return Err(format!(
+            "git push failed: {}",
+            String::from_utf8_lossy(&push.stderr)
+        ));
+    }
+
+    // gh pr create
+    let pr = Command::new("gh")
+        .args(["pr", "create", "--title", title, "--body", body])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("gh pr create failed: {e}"))?;
+    if !pr.status.success() {
+        return Err(format!(
+            "gh pr create failed: {}",
+            String::from_utf8_lossy(&pr.stderr)
+        ));
+    }
+
+    let pr_url = String::from_utf8_lossy(&pr.stdout).trim().to_string();
+    Ok(pr_url)
+}
+
+/// diff の統計情報を取得
+pub async fn get_diff_stats(worktree_path: &str) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["diff", "--stat", "HEAD~1"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git diff --stat failed: {e}"))?;
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// 変更されたファイル一覧を取得
+pub async fn get_changed_files(worktree_path: &str) -> Result<Vec<String>, String> {
+    let output = Command::new("git")
+        .args(["diff", "--name-only", "HEAD~1"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git diff --name-only failed: {e}"))?;
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect())
+}

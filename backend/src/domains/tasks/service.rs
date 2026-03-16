@@ -1,0 +1,234 @@
+use sqlx::PgPool;
+use uuid::Uuid;
+
+use crate::error::AppError;
+use super::model::*;
+
+pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Task>, AppError> {
+    let mut sql = String::from(
+        "SELECT id, project_id, repository_id, title, description, status, priority, \
+         depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+         FROM tasks WHERE 1=1",
+    );
+    let mut binds: Vec<String> = vec![];
+
+    if let Some(ref project_id) = query.project_id {
+        binds.push(project_id.to_string());
+        sql.push_str(&format!(" AND project_id = ${}", binds.len()));
+    }
+    if let Some(ref status) = query.status {
+        binds.push(status.clone());
+        sql.push_str(&format!(" AND status::text = ${}", binds.len()));
+    }
+
+    sql.push_str(" ORDER BY execution_order, created_at DESC");
+
+    // sqlx の動的クエリには query_builder を使うが、シンプルにするため分岐
+    match (query.project_id, query.status.as_deref()) {
+        (Some(pid), Some(status)) => {
+            Ok(sqlx::query_as::<_, Task>(
+                "SELECT id, project_id, repository_id, title, description, status, priority, \
+                 depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+                 FROM tasks WHERE project_id = $1 AND status::text = $2 \
+                 ORDER BY execution_order, created_at DESC",
+            )
+            .bind(pid)
+            .bind(status)
+            .fetch_all(pool)
+            .await?)
+        }
+        (Some(pid), None) => {
+            Ok(sqlx::query_as::<_, Task>(
+                "SELECT id, project_id, repository_id, title, description, status, priority, \
+                 depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+                 FROM tasks WHERE project_id = $1 \
+                 ORDER BY execution_order, created_at DESC",
+            )
+            .bind(pid)
+            .fetch_all(pool)
+            .await?)
+        }
+        (None, Some(status)) => {
+            Ok(sqlx::query_as::<_, Task>(
+                "SELECT id, project_id, repository_id, title, description, status, priority, \
+                 depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+                 FROM tasks WHERE status::text = $1 \
+                 ORDER BY execution_order, created_at DESC",
+            )
+            .bind(status)
+            .fetch_all(pool)
+            .await?)
+        }
+        (None, None) => {
+            Ok(sqlx::query_as::<_, Task>(
+                "SELECT id, project_id, repository_id, title, description, status, priority, \
+                 depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+                 FROM tasks ORDER BY execution_order, created_at DESC",
+            )
+            .fetch_all(pool)
+            .await?)
+        }
+    }
+}
+
+pub async fn get_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
+    sqlx::query_as::<_, Task>(
+        "SELECT id, project_id, repository_id, title, description, status, priority, \
+         depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at \
+         FROM tasks WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+pub async fn create_task(pool: &PgPool, req: &CreateTaskRequest) -> Result<Task, AppError> {
+    // プロジェクト存在確認
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)")
+        .bind(req.project_id)
+        .fetch_one(pool)
+        .await?;
+    if !exists {
+        return Err(AppError::Validation("Project not found".to_string()));
+    }
+
+    let priority = req.priority.clone().unwrap_or(TaskPriority::Medium);
+
+    sqlx::query_as::<_, Task>(
+        "INSERT INTO tasks (project_id, repository_id, title, description, priority) \
+         VALUES ($1, $2, $3, $4, $5) \
+         RETURNING id, project_id, repository_id, title, description, status, priority, \
+         depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at",
+    )
+    .bind(req.project_id)
+    .bind(req.repository_id)
+    .bind(&req.title)
+    .bind(&req.description)
+    .bind(&priority)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+pub async fn update_task(pool: &PgPool, id: Uuid, req: &UpdateTaskRequest) -> Result<Task, AppError> {
+    sqlx::query_as::<_, Task>(
+        r#"UPDATE tasks SET
+            title = COALESCE($2, title),
+            description = COALESCE($3, description),
+            priority = COALESCE($4, priority),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, project_id, repository_id, title, description, status, priority,
+        depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at"#,
+    )
+    .bind(id)
+    .bind(&req.title)
+    .bind(&req.description)
+    .bind(&req.priority)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)
+}
+
+pub async fn approve_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
+    let task = get_task(pool, id).await?;
+    if task.status != TaskStatus::Proposed {
+        return Err(AppError::Validation(format!(
+            "Task status must be 'proposed' to approve, got '{:?}'",
+            task.status
+        )));
+    }
+
+    sqlx::query_as::<_, Task>(
+        r#"UPDATE tasks SET status = 'approved', updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, project_id, repository_id, title, description, status, priority,
+        depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at"#,
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+pub async fn cancel_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
+    let task = get_task(pool, id).await?;
+    if task.status == TaskStatus::Completed || task.status == TaskStatus::Cancelled {
+        return Err(AppError::Validation("Task is already completed or cancelled".to_string()));
+    }
+
+    sqlx::query_as::<_, Task>(
+        r#"UPDATE tasks SET status = 'cancelled', updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, project_id, repository_id, title, description, status, priority,
+        depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at"#,
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+/// タスクのステータスと実行関連フィールドを更新（executor から使用）
+pub async fn update_task_execution(
+    pool: &PgPool,
+    id: Uuid,
+    status: TaskStatus,
+    plan: Option<&str>,
+    pr_url: Option<&str>,
+    changed_files: Option<&serde_json::Value>,
+    diff_stats: Option<&str>,
+    error_log: Option<&str>,
+) -> Result<Task, AppError> {
+    let now = chrono::Utc::now();
+    let started_at = if status == TaskStatus::Planning {
+        Some(now)
+    } else {
+        None
+    };
+    let completed_at = if status == TaskStatus::Completed || status == TaskStatus::Failed {
+        Some(now)
+    } else {
+        None
+    };
+
+    sqlx::query_as::<_, Task>(
+        r#"UPDATE tasks SET
+            status = $2,
+            plan = COALESCE($3, plan),
+            pr_url = COALESCE($4, pr_url),
+            changed_files = COALESCE($5, changed_files),
+            diff_stats = COALESCE($6, diff_stats),
+            error_log = COALESCE($7, error_log),
+            started_at = COALESCE($8, started_at),
+            completed_at = COALESCE($9, completed_at),
+            updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, project_id, repository_id, title, description, status, priority,
+        depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at"#,
+    )
+    .bind(id)
+    .bind(&status)
+    .bind(plan)
+    .bind(pr_url)
+    .bind(changed_files)
+    .bind(diff_stats)
+    .bind(error_log)
+    .bind(started_at)
+    .bind(completed_at)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
