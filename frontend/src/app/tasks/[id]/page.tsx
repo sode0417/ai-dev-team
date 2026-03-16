@@ -5,14 +5,17 @@ import {
   fetchTask,
   fetchExecutions,
   fetchExecutionLogs,
+  fetchHearings,
   approveTask,
   executeTask,
   cancelTask,
 } from "@/lib/api";
 import { connectTaskWs } from "@/lib/ws";
-import type { Task, ExecutionSession, ExecutionLog, WsMessage } from "@/types";
+import type { Task, ExecutionSession, ExecutionLog, WsMessage, TaskHearing } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PriorityBadge } from "@/components/PriorityBadge";
+import { HearingPanel } from "@/components/HearingPanel";
+import { PlanApprovalPanel } from "@/components/PlanApprovalPanel";
 
 export default function TaskDetailPage({
   params,
@@ -25,6 +28,7 @@ export default function TaskDetailPage({
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
   const [wsMessages, setWsMessages] = useState<WsMessage[]>([]);
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [hearings, setHearings] = useState<TaskHearing[]>([]);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -37,6 +41,9 @@ export default function TaskDetailPage({
       if (execRes.data.length > 0 && !selectedSession) {
         setSelectedSession(execRes.data[0].id);
       }
+      // ヒアリング取得
+      const hearingRes = await fetchHearings(id);
+      setHearings(hearingRes.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     }
@@ -48,7 +55,7 @@ export default function TaskDetailPage({
 
   useEffect(() => {
     if (!task) return;
-    const isActive = ["planning", "executing", "reviewing"].includes(task.status);
+    const isActive = ["hearing", "planning", "awaiting_approval", "executing", "reviewing"].includes(task.status);
     if (!isActive) return;
 
     wsRef.current = connectTaskWs(
@@ -69,10 +76,11 @@ export default function TaskDetailPage({
       .catch(() => {});
   }, [selectedSession]);
 
-  const handleAction = async (action: "approve" | "execute" | "cancel") => {
+  const handleAction = async (action: "approve" | "execute" | "execute-skip" | "cancel") => {
     try {
       if (action === "approve") await approveTask(id);
-      else if (action === "execute") await executeTask(id);
+      else if (action === "execute") await executeTask(id, false);
+      else if (action === "execute-skip") await executeTask(id, true);
       else if (action === "cancel") await cancelTask(id);
       load();
     } catch (e) {
@@ -138,17 +146,33 @@ export default function TaskDetailPage({
               onClick={() => handleAction("execute")}
               className="px-3 py-1.5 bg-gh-green/90 text-white rounded-md hover:bg-gh-green text-sm font-medium transition"
             >
-              Execute Now
+              Execute
+            </button>
+            <button
+              onClick={() => handleAction("execute-skip")}
+              className="px-3 py-1.5 border border-gh-green/40 text-gh-green rounded-md hover:bg-gh-green/10 text-sm font-medium transition"
+              title="ヒアリング・計画承認をスキップして即時実行"
+            >
+              即時実行
             </button>
           </>
         )}
         {task.status === "approved" && (
-          <button
-            onClick={() => handleAction("execute")}
-            className="px-3 py-1.5 bg-gh-green/90 text-white rounded-md hover:bg-gh-green text-sm font-medium transition"
-          >
-            Execute
-          </button>
+          <>
+            <button
+              onClick={() => handleAction("execute")}
+              className="px-3 py-1.5 bg-gh-green/90 text-white rounded-md hover:bg-gh-green text-sm font-medium transition"
+            >
+              Execute
+            </button>
+            <button
+              onClick={() => handleAction("execute-skip")}
+              className="px-3 py-1.5 border border-gh-green/40 text-gh-green rounded-md hover:bg-gh-green/10 text-sm font-medium transition"
+              title="ヒアリング・計画承認をスキップして即時実行"
+            >
+              即時実行
+            </button>
+          </>
         )}
         {!["completed", "failed", "cancelled"].includes(task.status) && (
           <button
@@ -160,8 +184,39 @@ export default function TaskDetailPage({
         )}
       </div>
 
-      {/* 実行計画 */}
-      {task.plan && (
+      {/* ヒアリングパネル */}
+      {task.status === "hearing" && hearings.length > 0 && (
+        <div className="mb-6">
+          <HearingPanel
+            taskId={id}
+            hearings={hearings}
+            onAnswered={load}
+          />
+        </div>
+      )}
+
+      {/* 計画承認パネル */}
+      {task.status === "awaiting_approval" && task.plan && (
+        <div className="mb-6">
+          {hearings.length > 0 && (
+            <div className="mb-4">
+              <HearingPanel
+                taskId={id}
+                hearings={hearings}
+                onAnswered={load}
+              />
+            </div>
+          )}
+          <PlanApprovalPanel
+            taskId={id}
+            plan={task.plan}
+            onAction={load}
+          />
+        </div>
+      )}
+
+      {/* 実行計画 (hearing/awaiting_approval 以外の時) */}
+      {task.plan && task.status !== "awaiting_approval" && (
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-gh-text-secondary mb-2">Plan</h3>
           <pre className="p-3 bg-gh-surface border border-gh-border rounded-lg text-sm whitespace-pre-wrap overflow-auto max-h-96 text-gh-text">

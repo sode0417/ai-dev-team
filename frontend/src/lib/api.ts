@@ -80,9 +80,10 @@ export function approveTask(id: string) {
   });
 }
 
-export function executeTask(id: string) {
+export function executeTask(id: string, skipHearing?: boolean) {
   return request<{ data: import("@/types").Task }>(`/api/tasks/${id}/execute`, {
     method: "POST",
+    body: JSON.stringify({ skip_hearing: skipHearing ?? false }),
   });
 }
 
@@ -90,6 +91,34 @@ export function cancelTask(id: string) {
   return request<{ data: import("@/types").Task }>(`/api/tasks/${id}/cancel`, {
     method: "POST",
   });
+}
+
+// Hearings
+export function fetchHearings(taskId: string) {
+  return request<{ data: import("@/types").TaskHearing[] }>(
+    `/api/tasks/${taskId}/hearings`
+  );
+}
+
+export function answerHearing(taskId: string, answers: import("@/types").HearingAnswer[]) {
+  return request<{ data: import("@/types").Task; hearing: import("@/types").TaskHearing }>(
+    `/api/tasks/${taskId}/hearing/answer`,
+    { method: "POST", body: JSON.stringify({ answers }) }
+  );
+}
+
+export function approvePlan(taskId: string) {
+  return request<{ data: import("@/types").Task }>(
+    `/api/tasks/${taskId}/approve-plan`,
+    { method: "POST" }
+  );
+}
+
+export function rejectPlan(taskId: string, action: "replan" | "cancel", feedback?: string) {
+  return request<{ data: import("@/types").Task }>(
+    `/api/tasks/${taskId}/reject-plan`,
+    { method: "POST", body: JSON.stringify({ action, feedback }) }
+  );
 }
 
 // Scans

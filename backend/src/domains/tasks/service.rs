@@ -1,3 +1,4 @@
+use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -231,4 +232,135 @@ pub async fn update_task_execution(
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
+}
+
+// === ヒアリング CRUD ===
+
+pub async fn create_hearing(
+    pool: &PgPool,
+    task_id: Uuid,
+    session_id: Option<Uuid>,
+    phase: &str,
+    round: i32,
+    questions: &Value,
+) -> Result<TaskHearing, AppError> {
+    Ok(sqlx::query_as::<_, TaskHearing>(
+        "INSERT INTO task_hearings (task_id, session_id, phase, round, questions) \
+         VALUES ($1, $2, $3, $4, $5) \
+         RETURNING id, task_id, session_id, phase, round, questions, answers, status, created_at, answered_at",
+    )
+    .bind(task_id)
+    .bind(session_id)
+    .bind(phase)
+    .bind(round)
+    .bind(questions)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn answer_hearing(
+    pool: &PgPool,
+    hearing_id: Uuid,
+    answers: &Value,
+) -> Result<TaskHearing, AppError> {
+    Ok(sqlx::query_as::<_, TaskHearing>(
+        r#"UPDATE task_hearings SET
+            answers = $2,
+            status = 'answered',
+            answered_at = NOW()
+        WHERE id = $1
+        RETURNING id, task_id, session_id, phase, round, questions, answers, status, created_at, answered_at"#,
+    )
+    .bind(hearing_id)
+    .bind(answers)
+    .fetch_one(pool)
+    .await?)
+}
+
+pub async fn get_latest_hearing(pool: &PgPool, task_id: Uuid) -> Result<Option<TaskHearing>, AppError> {
+    Ok(sqlx::query_as::<_, TaskHearing>(
+        "SELECT id, task_id, session_id, phase, round, questions, answers, status, created_at, answered_at \
+         FROM task_hearings WHERE task_id = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
+pub async fn list_hearings(pool: &PgPool, task_id: Uuid) -> Result<Vec<TaskHearing>, AppError> {
+    Ok(sqlx::query_as::<_, TaskHearing>(
+        "SELECT id, task_id, session_id, phase, round, questions, answers, status, created_at, answered_at \
+         FROM task_hearings WHERE task_id = $1 ORDER BY created_at",
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// 計画承認: awaiting_approval → executing
+pub async fn approve_plan(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
+    let task = get_task(pool, id).await?;
+    if task.status != TaskStatus::AwaitingApproval {
+        return Err(AppError::Validation(format!(
+            "Task must be 'awaiting_approval' to approve plan, got '{:?}'",
+            task.status
+        )));
+    }
+
+    sqlx::query_as::<_, Task>(
+        r#"UPDATE tasks SET status = 'executing', updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, project_id, repository_id, title, description, status, priority,
+        depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type"#,
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+/// 計画却下: replan → hearing に戻す, cancel → cancelled
+pub async fn reject_plan(pool: &PgPool, id: Uuid, action: &str) -> Result<Task, AppError> {
+    let task = get_task(pool, id).await?;
+    if task.status != TaskStatus::AwaitingApproval {
+        return Err(AppError::Validation(format!(
+            "Task must be 'awaiting_approval' to reject plan, got '{:?}'",
+            task.status
+        )));
+    }
+
+    let new_status = if action == "cancel" { "cancelled" } else { "hearing" };
+
+    sqlx::query_as::<_, Task>(
+        r#"UPDATE tasks SET status = $2::task_status, plan = CASE WHEN $2 = 'hearing' THEN NULL ELSE plan END, updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, project_id, repository_id, title, description, status, priority,
+        depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type"#,
+    )
+    .bind(id)
+    .bind(new_status)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+/// ヒアリング全回答を文字列で取得（プロンプト挿入用）
+pub async fn get_hearing_context(pool: &PgPool, task_id: Uuid) -> Result<String, AppError> {
+    let hearings = list_hearings(pool, task_id).await?;
+    let mut context = String::new();
+    for h in hearings {
+        if h.status != "answered" {
+            continue;
+        }
+        let questions: Vec<HearingQuestion> = serde_json::from_value(h.questions).unwrap_or_default();
+        let answers: Vec<HearingAnswer> = h.answers.map(|a| serde_json::from_value(a).unwrap_or_default()).unwrap_or_default();
+        for q in &questions {
+            if let Some(a) = answers.iter().find(|a| a.index == q.index) {
+                context.push_str(&format!("Q: {}\nA: {}\n\n", q.question, a.answer));
+            }
+        }
+    }
+    Ok(context)
 }

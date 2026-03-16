@@ -48,7 +48,7 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
 
     let active_tasks: i64 =
         sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tasks WHERE status IN ('planning', 'executing', 'reviewing')",
+            "SELECT COUNT(*) FROM tasks WHERE status IN ('hearing', 'planning', 'awaiting_approval', 'executing', 'reviewing')",
         )
         .fetch_one(&state.pool)
         .await?;

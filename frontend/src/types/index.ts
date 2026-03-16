@@ -2,7 +2,9 @@ export type TaskStatus =
   | "proposed"
   | "approved"
   | "queued"
+  | "hearing"
   | "planning"
+  | "awaiting_approval"
   | "executing"
   | "reviewing"
   | "completed"
@@ -126,6 +128,30 @@ export interface ScanWsMessage {
   scan_id: string;
   phase: string;
   message: string;
+}
+
+export interface HearingQuestion {
+  index: number;
+  question: string;
+  options?: string[];
+}
+
+export interface HearingAnswer {
+  index: number;
+  answer: string;
+}
+
+export interface TaskHearing {
+  id: string;
+  task_id: string;
+  session_id: string | null;
+  phase: "pre_plan" | "in_plan";
+  round: number;
+  questions: HearingQuestion[];
+  answers: HearingAnswer[] | null;
+  status: "pending" | "answered" | "skipped";
+  created_at: string;
+  answered_at: string | null;
 }
 
 export interface GitHubLabel {

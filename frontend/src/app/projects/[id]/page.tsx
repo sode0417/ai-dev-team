@@ -298,10 +298,11 @@ function TasksTab({
   tasks: Task[];
   onRefresh: () => void;
 }) {
-  const handleAction = async (action: "approve" | "execute" | "cancel", taskId: string) => {
+  const handleAction = async (action: "approve" | "execute" | "execute-skip" | "cancel", taskId: string) => {
     try {
       if (action === "approve") await approveTask(taskId);
-      else if (action === "execute") await executeTask(taskId);
+      else if (action === "execute") await executeTask(taskId, false);
+      else if (action === "execute-skip") await executeTask(taskId, true);
       else await cancelTask(taskId);
       onRefresh();
     } catch (e) {
@@ -373,12 +374,21 @@ function TasksTab({
                 </>
               )}
               {task.status === "approved" && (
-                <button
-                  onClick={() => handleAction("execute", task.id)}
-                  className="px-2 py-1 text-xs font-medium rounded-md bg-gh-blue/15 text-gh-blue hover:bg-gh-blue/25 transition"
-                >
-                  Execute
-                </button>
+                <>
+                  <button
+                    onClick={() => handleAction("execute", task.id)}
+                    className="px-2 py-1 text-xs font-medium rounded-md bg-gh-blue/15 text-gh-blue hover:bg-gh-blue/25 transition"
+                  >
+                    Execute
+                  </button>
+                  <button
+                    onClick={() => handleAction("execute-skip", task.id)}
+                    className="px-2 py-1 text-xs font-medium rounded-md bg-gh-text-muted/15 text-gh-text-secondary hover:bg-gh-text-muted/25 transition"
+                    title="即時実行（ヒアリング・計画承認スキップ）"
+                  >
+                    即時
+                  </button>
+                </>
               )}
             </div>
           </div>

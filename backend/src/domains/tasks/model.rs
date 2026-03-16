@@ -10,7 +10,9 @@ pub enum TaskStatus {
     Proposed,
     Approved,
     Queued,
+    Hearing,
     Planning,
+    AwaitingApproval,
     Executing,
     Reviewing,
     Completed,
@@ -76,4 +78,50 @@ pub struct UpdateTaskRequest {
 pub struct ListTasksQuery {
     pub project_id: Option<Uuid>,
     pub status: Option<String>,
+}
+
+// ヒアリング関連
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct TaskHearing {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub session_id: Option<Uuid>,
+    pub phase: String,
+    pub round: i32,
+    pub questions: Value,
+    pub answers: Option<Value>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub answered_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecuteTaskRequest {
+    pub skip_hearing: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AnswerHearingRequest {
+    pub answers: Vec<HearingAnswer>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HearingAnswer {
+    pub index: i32,
+    pub answer: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HearingQuestion {
+    pub index: i32,
+    pub question: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RejectPlanRequest {
+    pub action: String,       // "replan" | "cancel"
+    pub feedback: Option<String>,
 }
