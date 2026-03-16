@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { approvePlan, rejectPlan } from "@/lib/api";
+import { Markdown } from "@/components/Markdown";
 
 export function PlanApprovalPanel({
   taskId,
@@ -63,9 +64,9 @@ export function PlanApprovalPanel({
       {/* 計画表示 */}
       <div>
         <h3 className="text-sm font-semibold text-gh-text-secondary mb-2">実装計画</h3>
-        <pre className="p-3 bg-gh-surface border border-gh-border rounded-lg text-sm whitespace-pre-wrap overflow-auto max-h-96 text-gh-text">
-          {plan}
-        </pre>
+        <div className="p-3 bg-gh-surface border border-gh-border rounded-lg overflow-auto max-h-[500px]">
+          <Markdown>{plan}</Markdown>
+        </div>
       </div>
 
       {error && <div className="text-gh-red text-sm">{error}</div>}

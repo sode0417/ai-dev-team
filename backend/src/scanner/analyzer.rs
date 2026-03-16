@@ -272,7 +272,7 @@ fn build_prompt(
       "title": "タスクタイトル",
       "description": "何をなぜやるか",
       "priority": "high|medium|low",
-      "proposal_type": "development|improvement|investigation",
+      "proposal_type": "development|improvement|investigation|operation",
       "issue_number": null
     }}
   ],
@@ -289,6 +289,7 @@ fn build_prompt(
 - 失敗パターンが繰り返されている場合、improvement タスクとして改善を提案
 - CLAUDE.md の内容が実態と乖離していれば improvement タスクを提案
 - investigation は不明点の調査が必要な場合のみ
+- operation は Issue クローズ/作成/ラベル整理など GitHub 操作タスク（コード変更なし）
 - タスクは具体的かつ実行可能なものに限定（最大8件）
 - repository_name は各リポジトリの名前部分（owner は含めない）"#
     )

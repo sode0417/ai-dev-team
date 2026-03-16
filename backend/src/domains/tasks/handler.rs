@@ -104,6 +104,7 @@ async fn execute_task(
     let task_title = task.title.clone();
     let task_description = task.description.clone();
     let branch = repo.default_branch.clone();
+    let proposal_type = task.proposal_type.clone();
 
     if skip_hearing {
         // 即時実行: 既存パイプライン
@@ -113,7 +114,7 @@ async fn execute_task(
 
         tokio::spawn(async move {
             crate::executor::pipeline::run_pipeline(
-                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &branch,
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &branch, &proposal_type,
             ).await;
         });
     } else {
@@ -124,7 +125,7 @@ async fn execute_task(
 
         tokio::spawn(async move {
             crate::executor::pipeline::run_hearing_phase(
-                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &branch,
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &branch, &proposal_type,
             ).await;
         });
     }
@@ -199,20 +200,21 @@ async fn answer_hearing(
     let task_id = task.id;
     let task_title = task.title.clone();
     let task_description = task.description.clone();
+    let proposal_type = task.proposal_type.clone();
     let phase = hearing.phase.clone();
 
     if phase == "pre_plan" {
         // 計画フェーズへ
         tokio::spawn(async move {
             crate::executor::pipeline::run_planning_phase(
-                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path,
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &proposal_type,
             ).await;
         });
     } else {
         // in_plan: 回答を反映して再計画
         tokio::spawn(async move {
             crate::executor::pipeline::run_planning_phase(
-                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path,
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &proposal_type,
             ).await;
         });
     }
@@ -248,10 +250,11 @@ async fn approve_plan(
     let task_id = task.id;
     let task_title = task.title.clone();
     let task_description = task.description.clone();
+    let proposal_type = task.proposal_type.clone();
 
     tokio::spawn(async move {
         crate::executor::pipeline::run_execution_phase(
-            &pool, &ws_hub, task_id, &task_title, &task_description, &local_path,
+            &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &proposal_type,
         ).await;
     });
 
@@ -300,10 +303,11 @@ async fn reject_plan(
         let task_id = task.id;
         let task_title = task.title.clone();
         let task_description = task.description.clone();
+        let proposal_type = task.proposal_type.clone();
 
         tokio::spawn(async move {
             crate::executor::pipeline::run_planning_phase(
-                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path,
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &proposal_type,
             ).await;
         });
     }

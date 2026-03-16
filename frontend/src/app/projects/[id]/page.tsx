@@ -291,6 +291,16 @@ function RepositoriesTab({
 
 /* ─── Tasks Tab ─── */
 
+const STATUS_FILTERS = [
+  { value: "active", label: "Active", match: (s: string) => !["completed", "failed", "cancelled"].includes(s) },
+  { value: "completed", label: "Completed", match: (s: string) => s === "completed" },
+  { value: "failed", label: "Failed", match: (s: string) => s === "failed" },
+  { value: "cancelled", label: "Cancelled", match: (s: string) => s === "cancelled" },
+  { value: "all", label: "All", match: () => true },
+] as const;
+
+type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+
 function TasksTab({
   tasks,
   onRefresh,
@@ -298,6 +308,8 @@ function TasksTab({
   tasks: Task[];
   onRefresh: () => void;
 }) {
+  const [filter, setFilter] = useState<StatusFilter>("active");
+
   const handleAction = async (action: "approve" | "execute" | "execute-skip" | "cancel", taskId: string) => {
     try {
       if (action === "approve") await approveTask(taskId);
@@ -310,13 +322,49 @@ function TasksTab({
     }
   };
 
+  const currentFilter = STATUS_FILTERS.find((f) => f.value === filter)!;
+  const filteredTasks = tasks.filter((t) => currentFilter.match(t.status));
+
+  // 各フィルタのカウント
+  const counts: Record<StatusFilter, number> = {
+    active: tasks.filter((t) => STATUS_FILTERS[0].match(t.status)).length,
+    completed: tasks.filter((t) => t.status === "completed").length,
+    failed: tasks.filter((t) => t.status === "failed").length,
+    cancelled: tasks.filter((t) => t.status === "cancelled").length,
+    all: tasks.length,
+  };
+
   if (tasks.length === 0) {
     return <p className="text-gh-text-secondary text-sm">タスクはまだありません</p>;
   }
 
   return (
+    <div>
+      {/* Filter bar */}
+      <div className="flex gap-1 mb-3 flex-wrap">
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setFilter(f.value)}
+            className={`px-2.5 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
+              filter === f.value
+                ? "bg-gh-blue/15 text-gh-blue"
+                : "text-gh-text-secondary hover:bg-gh-overlay hover:text-gh-text"
+            }`}
+          >
+            {f.label}
+            {counts[f.value] > 0 && (
+              <span className="ml-1 text-[10px] opacity-70">{counts[f.value]}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {filteredTasks.length === 0 ? (
+        <p className="text-gh-text-secondary text-sm py-4 text-center">該当するタスクはありません</p>
+      ) : (
     <div className="rounded-lg border border-gh-border overflow-hidden">
-      {tasks.map((task, i) => (
+      {filteredTasks.map((task, i) => (
         <div
           key={task.id}
           className={`px-4 py-3 ${i > 0 ? "border-t border-gh-border" : ""}`}
@@ -330,6 +378,8 @@ function TasksTab({
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
                     task.proposal_type === "improvement"
                       ? "bg-gh-orange/15 text-gh-orange"
+                      : task.proposal_type === "operation"
+                      ? "bg-gh-green/15 text-gh-green"
                       : "bg-gh-purple/15 text-gh-purple"
                   }`}>
                     {task.proposal_type}
@@ -394,6 +444,8 @@ function TasksTab({
           </div>
         </div>
       ))}
+    </div>
+      )}
     </div>
   );
 }

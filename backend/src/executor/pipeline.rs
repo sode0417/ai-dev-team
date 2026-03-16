@@ -17,6 +17,7 @@ pub async fn run_pipeline(
     description: &str,
     repo_path: &str,
     base_branch: &str,
+    proposal_type: &str,
 ) {
     // セッション作成前に worktree を準備
     let (worktree_dir, branch_name) = match worktree::create_worktree(repo_path, task_id, base_branch).await {
@@ -83,8 +84,21 @@ pub async fn run_pipeline(
     let _ = exec_service::update_session(pool, session_id, "running", Some(&plan), None, None, None, None).await;
     let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Executing, Some(&plan), None, None, None, None).await;
 
-    // === Phase 2: Coder ===
-    run_coder_to_pr(pool, ws_hub, task_id, session_id, title, description, &plan, "", &wt_path, &branch_name, repo_path, &worktree_dir).await;
+    // === Phase 2: 実行 (proposal_type で分岐) ===
+    match proposal_type {
+        "investigation" => {
+            run_investigation(pool, ws_hub, task_id, session_id, title, description, &plan, &wt_path, repo_path, &worktree_dir).await;
+        }
+        "operation" => {
+            run_operation(pool, ws_hub, task_id, session_id, title, description, &plan, &wt_path, repo_path, &worktree_dir).await;
+        }
+        "improvement" => {
+            run_coder_to_pr(pool, ws_hub, task_id, session_id, title, description, &plan, "", &wt_path, &branch_name, repo_path, &worktree_dir, true, true).await;
+        }
+        _ => {
+            run_coder_to_pr(pool, ws_hub, task_id, session_id, title, description, &plan, "", &wt_path, &branch_name, repo_path, &worktree_dir, false, false).await;
+        }
+    }
 }
 
 /// ヒアリングフェーズ: コードベース分析 → 質問生成 → hearing で停止
@@ -96,6 +110,7 @@ pub async fn run_hearing_phase(
     description: &str,
     repo_path: &str,
     base_branch: &str,
+    proposal_type: &str,
 ) {
     // worktree 作成
     let (worktree_dir, branch_name) = match worktree::create_worktree(repo_path, task_id, base_branch).await {
@@ -168,7 +183,7 @@ pub async fn run_hearing_phase(
         log(pool, session_id, "hearing", 1, "info", "質問なし — 計画フェーズへ").await;
         broadcast(ws_hub, task_id, "planning", "質問なし — Planner Agent 起動中...").await;
         let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Planning, None, None, None, None, None).await;
-        run_planning_phase(pool, ws_hub, task_id, title, description, repo_path).await;
+        run_planning_phase(pool, ws_hub, task_id, title, description, repo_path, proposal_type).await;
     } else {
         // 質問あり → hearing レコード保存 → status = hearing で停止
         let questions_json = serde_json::to_value(&questions).unwrap_or_default();
@@ -187,6 +202,7 @@ pub async fn run_planning_phase(
     title: &str,
     description: &str,
     repo_path: &str,
+    proposal_type: &str,
 ) {
     let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Planning, None, None, None, None, None).await;
     broadcast(ws_hub, task_id, "planning", "Planner Agent 起動中...").await;
@@ -217,30 +233,71 @@ pub async fn run_planning_phase(
     // ヒアリング回答をコンテキストとして取得
     let hearing_context = task_service::get_hearing_context(pool, task_id).await.unwrap_or_default();
 
-    let planner_prompt = format!(
-        "あなたは Planner Agent です。以下のタスクの実装計画を立ててください。\n\n\
-        ## タスク\n\
-        タイトル: {title}\n\
-        説明: {description}\n\n\
-        {hearing_section}\
-        ## 指示\n\
-        1. コードベースを分析して、変更が必要なファイルを特定してください\n\
-        2. 実装計画を以下の形式で出力してください:\n\
-           - 変更ファイル一覧\n\
-           - 各ファイルの変更内容\n\
-           - テスト方針\n\
-        3. 計画のみ出力し、コード変更は行わないでください\n\
-        4. 不明点がある場合は、計画の最後に ## 確認事項 セクションを追加し、以下の JSON 形式で質問を記載してください:\n\
-        ```json\n\
-        [{{\"index\": 1, \"question\": \"質問内容\"}}]\n\
-        ```\n\
-        5. 不明点がなければ ## 確認事項 セクションは不要です",
-        hearing_section = if hearing_context.is_empty() {
-            String::new()
-        } else {
-            format!("## ヒアリング回答\n{hearing_context}\n")
-        }
-    );
+    let hearing_section = if hearing_context.is_empty() {
+        String::new()
+    } else {
+        format!("## ヒアリング回答\n{hearing_context}\n")
+    };
+
+    let planner_prompt = match proposal_type {
+        "investigation" => format!(
+            "あなたは Planner Agent です。以下の調査タスクの調査計画を立ててください。\n\n\
+            ## タスク\n\
+            タイトル: {title}\n\
+            説明: {description}\n\n\
+            {hearing_section}\
+            ## 指示\n\
+            1. コードベースを分析して、調査対象のファイルや領域を特定してください\n\
+            2. 調査計画を以下の形式で出力してください:\n\
+               - 調査対象ファイル・領域一覧\n\
+               - 各調査項目の確認内容\n\
+               - 期待される調査結果の形式\n\
+            3. 計画のみ出力し、実際の調査は行わないでください\n\
+            4. 不明点がある場合は、計画の最後に ## 確認事項 セクションを追加し、以下の JSON 形式で質問を記載してください:\n\
+            ```json\n\
+            [{{\"index\": 1, \"question\": \"質問内容\"}}]\n\
+            ```\n\
+            5. 不明点がなければ ## 確認事項 セクションは不要です"
+        ),
+        "operation" => format!(
+            "あなたは Planner Agent です。以下の GitHub 操作タスクの手順を計画してください。\n\n\
+            ## タスク\n\
+            タイトル: {title}\n\
+            説明: {description}\n\n\
+            {hearing_section}\
+            ## 指示\n\
+            1. タスク内容を分析して、必要な GitHub 操作（Issue クローズ/作成/ラベル整理等）を特定してください\n\
+            2. 操作計画を以下の形式で出力してください:\n\
+               - 操作対象（Issue/PR/ラベル等）一覧\n\
+               - 各操作の具体的な手順（gh コマンド）\n\
+               - 操作の実行順序\n\
+            3. 計画のみ出力し、実際の操作は行わないでください\n\
+            4. 不明点がある場合は、計画の最後に ## 確認事項 セクションを追加し、以下の JSON 形式で質問を記載してください:\n\
+            ```json\n\
+            [{{\"index\": 1, \"question\": \"質問内容\"}}]\n\
+            ```\n\
+            5. 不明点がなければ ## 確認事項 セクションは不要です"
+        ),
+        _ => format!(
+            "あなたは Planner Agent です。以下のタスクの実装計画を立ててください。\n\n\
+            ## タスク\n\
+            タイトル: {title}\n\
+            説明: {description}\n\n\
+            {hearing_section}\
+            ## 指示\n\
+            1. コードベースを分析して、変更が必要なファイルを特定してください\n\
+            2. 実装計画を以下の形式で出力してください:\n\
+               - 変更ファイル一覧\n\
+               - 各ファイルの変更内容\n\
+               - テスト方針\n\
+            3. 計画のみ出力し、コード変更は行わないでください\n\
+            4. 不明点がある場合は、計画の最後に ## 確認事項 セクションを追加し、以下の JSON 形式で質問を記載してください:\n\
+            ```json\n\
+            [{{\"index\": 1, \"question\": \"質問内容\"}}]\n\
+            ```\n\
+            5. 不明点がなければ ## 確認事項 セクションは不要です"
+        ),
+    };
 
     let plan_result = match claude_cli::run_claude(&planner_prompt, &wt_path, 300).await {
         Ok(r) => r,
@@ -281,7 +338,7 @@ pub async fn run_planning_phase(
     }
 }
 
-/// 実行フェーズ: 計画承認後に Coder → Reviewer → Test → PR
+/// 実行フェーズ: 計画承認後に Coder → Reviewer → Test → PR (proposal_type で分岐)
 pub async fn run_execution_phase(
     pool: &PgPool,
     ws_hub: &WsHub,
@@ -289,6 +346,7 @@ pub async fn run_execution_phase(
     title: &str,
     description: &str,
     repo_path: &str,
+    proposal_type: &str,
 ) {
     // セッション取得
     let sessions = exec_service::list_sessions(pool, task_id).await.unwrap_or_default();
@@ -321,7 +379,21 @@ pub async fn run_execution_phase(
     let hearing_context = task_service::get_hearing_context(pool, task_id).await.unwrap_or_default();
 
     let worktree_dir = std::path::PathBuf::from(&wt_path);
-    run_coder_to_pr(pool, ws_hub, task_id, session_id, title, description, &plan, &hearing_context, &wt_path, &branch_name, repo_path, &worktree_dir).await;
+
+    match proposal_type {
+        "investigation" => {
+            run_investigation(pool, ws_hub, task_id, session_id, title, description, &plan, &wt_path, repo_path, &worktree_dir).await;
+        }
+        "operation" => {
+            run_operation(pool, ws_hub, task_id, session_id, title, description, &plan, &wt_path, repo_path, &worktree_dir).await;
+        }
+        "improvement" => {
+            run_coder_to_pr(pool, ws_hub, task_id, session_id, title, description, &plan, &hearing_context, &wt_path, &branch_name, repo_path, &worktree_dir, true, true).await;
+        }
+        _ => {
+            run_coder_to_pr(pool, ws_hub, task_id, session_id, title, description, &plan, &hearing_context, &wt_path, &branch_name, repo_path, &worktree_dir, false, false).await;
+        }
+    }
 }
 
 /// Coder → Reviewer → Test → PR の共通処理
@@ -338,6 +410,8 @@ async fn run_coder_to_pr(
     branch_name: &str,
     repo_path: &str,
     worktree_dir: &std::path::Path,
+    skip_review: bool,
+    skip_test: bool,
 ) {
     broadcast(ws_hub, task_id, "executing", "Coder Agent 起動中...").await;
     log(pool, session_id, "coder", 1, "info", "Coder Agent 開始").await;
@@ -379,86 +453,94 @@ async fn run_coder_to_pr(
     log(pool, session_id, "coder", 1, "info", "コード実装完了").await;
 
     // === Reviewer (max 2 iterations) ===
-    broadcast(ws_hub, task_id, "reviewing", "Reviewer Agent 起動中...").await;
-    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Reviewing, None, None, None, None, None).await;
+    if !skip_review {
+        broadcast(ws_hub, task_id, "reviewing", "Reviewer Agent 起動中...").await;
+        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Reviewing, None, None, None, None, None).await;
 
-    for iteration in 1..=2 {
-        log(pool, session_id, "reviewer", iteration, "info", &format!("レビュー iteration {iteration}")).await;
+        for iteration in 1..=2 {
+            log(pool, session_id, "reviewer", iteration, "info", &format!("レビュー iteration {iteration}")).await;
 
-        let diff = get_diff_output(wt_path).await;
-        let reviewer_prompt = format!(
-            "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
-            ## タスク\n\
-            {description}\n\n\
-            ## Diff\n\
-            ```\n{diff}\n```\n\n\
-            ## 指示\n\
-            - コード品質、バグ、セキュリティの観点でレビュー\n\
-            - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
-        );
+            let diff = get_diff_output(wt_path).await;
+            let reviewer_prompt = format!(
+                "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
+                ## タスク\n\
+                {description}\n\n\
+                ## Diff\n\
+                ```\n{diff}\n```\n\n\
+                ## 指示\n\
+                - コード品質、バグ、セキュリティの観点でレビュー\n\
+                - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
+            );
 
-        let review = match claude_cli::run_claude(&reviewer_prompt, wt_path, 300).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!("Reviewer failed: {e}");
+            let review = match claude_cli::run_claude(&reviewer_prompt, wt_path, 300).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("Reviewer failed: {e}");
+                    break;
+                }
+            };
+
+            let verdict = parse_verdict(&review.stdout);
+            log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}")).await;
+            let _ = exec_service::update_session(pool, session_id, "running", None, Some(&review.stdout), Some(&verdict), None, None).await;
+
+            if verdict == "APPROVE" || iteration == 2 {
                 break;
             }
-        };
 
-        let verdict = parse_verdict(&review.stdout);
-        log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}")).await;
-        let _ = exec_service::update_session(pool, session_id, "running", None, Some(&review.stdout), Some(&verdict), None, None).await;
-
-        if verdict == "APPROVE" || iteration == 2 {
-            break;
+            // REQUEST_CHANGES → Coder で修正
+            broadcast(ws_hub, task_id, "executing", &format!("修正中 (iteration {iteration})...")).await;
+            let fix_prompt = format!(
+                "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+                review.stdout
+            );
+            let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
         }
-
-        // REQUEST_CHANGES → Coder で修正
-        broadcast(ws_hub, task_id, "executing", &format!("修正中 (iteration {iteration})...")).await;
-        let fix_prompt = format!(
-            "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
-            review.stdout
-        );
-        let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
+    } else {
+        log(pool, session_id, "reviewer", 1, "info", "Reviewer スキップ (improvement タイプ)").await;
     }
 
     // === Test (max 2 iterations) ===
-    broadcast(ws_hub, task_id, "executing", "Test Agent 起動中...").await;
+    if !skip_test {
+        broadcast(ws_hub, task_id, "executing", "Test Agent 起動中...").await;
 
-    for iteration in 1..=2 {
-        log(pool, session_id, "test", iteration, "info", &format!("テスト iteration {iteration}")).await;
+        for iteration in 1..=2 {
+            log(pool, session_id, "test", iteration, "info", &format!("テスト iteration {iteration}")).await;
 
-        let test_prompt =
-            "あなたは Test Agent です。このプロジェクトのテストを実行してください。\n\n\
-            ## 指示\n\
-            - プロジェクトに適したテストコマンドを特定して実行\n\
-            - テスト結果を確認\n\
-            - 最終行に必ず VERDICT: PASS または VERDICT: FAIL を出力";
+            let test_prompt =
+                "あなたは Test Agent です。このプロジェクトのテストを実行してください。\n\n\
+                ## 指示\n\
+                - プロジェクトに適したテストコマンドを特定して実行\n\
+                - テスト結果を確認\n\
+                - 最終行に必ず VERDICT: PASS または VERDICT: FAIL を出力";
 
-        let test = match claude_cli::run_claude_autonomous(test_prompt, wt_path, 300).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!("Test failed: {e}");
+            let test = match claude_cli::run_claude_autonomous(test_prompt, wt_path, 300).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("Test failed: {e}");
+                    break;
+                }
+            };
+
+            let verdict = parse_test_verdict(&test.stdout);
+            let passed = verdict == "PASS";
+            log(pool, session_id, "test", iteration, "info", &format!("Test verdict: {verdict}")).await;
+            let _ = exec_service::update_session(pool, session_id, "running", None, None, None, Some(&test.stdout), Some(passed)).await;
+
+            if passed || iteration == 2 {
                 break;
             }
-        };
 
-        let verdict = parse_test_verdict(&test.stdout);
-        let passed = verdict == "PASS";
-        log(pool, session_id, "test", iteration, "info", &format!("Test verdict: {verdict}")).await;
-        let _ = exec_service::update_session(pool, session_id, "running", None, None, None, Some(&test.stdout), Some(passed)).await;
-
-        if passed || iteration == 2 {
-            break;
+            // FAIL → Coder で修正
+            broadcast(ws_hub, task_id, "executing", &format!("テスト修正中 (iteration {iteration})...")).await;
+            let fix_prompt = format!(
+                "テストが失敗しました。以下のテスト出力に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+                test.stdout
+            );
+            let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
         }
-
-        // FAIL → Coder で修正
-        broadcast(ws_hub, task_id, "executing", &format!("テスト修正中 (iteration {iteration})...")).await;
-        let fix_prompt = format!(
-            "テストが失敗しました。以下のテスト出力に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
-            test.stdout
-        );
-        let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
+    } else {
+        log(pool, session_id, "test", 1, "info", "Test スキップ (improvement タイプ)").await;
     }
 
     // === Commit & PR ===
@@ -492,6 +574,118 @@ async fn run_coder_to_pr(
             }
         }
     }
+
+    // Cleanup
+    let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
+    ws_hub.remove_channel(&task_id).await;
+}
+
+/// 調査タスク: Claude で調査 → 結果を plan に保存 → 完了 (PR なし)
+async fn run_investigation(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    task_id: Uuid,
+    session_id: Uuid,
+    title: &str,
+    description: &str,
+    plan: &str,
+    wt_path: &str,
+    repo_path: &str,
+    worktree_dir: &std::path::Path,
+) {
+    broadcast(ws_hub, task_id, "executing", "Investigation Agent 起動中...").await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Executing, None, None, None, None, None).await;
+    log(pool, session_id, "investigation", 1, "info", "調査開始").await;
+
+    let investigation_prompt = format!(
+        "あなたは Investigation Agent です。以下の調査計画に基づいてコードベースを調査し、結果をレポート形式で出力してください。\n\n\
+        ## タスク\n\
+        タイトル: {title}\n\
+        説明: {description}\n\n\
+        ## 調査計画\n\
+        {plan}\n\n\
+        ## 指示\n\
+        - コードベースを分析・調査してください\n\
+        - 調査結果をマークダウン形式のレポートとして出力してください\n\
+        - コード変更は行わないでください\n\
+        - 発見事項、推奨事項、次のアクションを明確に記載してください"
+    );
+
+    let result = match claude_cli::run_claude(&investigation_prompt, wt_path, 600).await {
+        Ok(r) => r,
+        Err(e) => {
+            fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &e).await;
+            return;
+        }
+    };
+
+    if result.exit_code != 0 {
+        let err = format!("Investigation failed: {}", result.stderr);
+        fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &err).await;
+        return;
+    }
+
+    let report = result.stdout.clone();
+    log(pool, session_id, "investigation", 1, "info", &format!("調査完了: {}bytes", report.len())).await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, Some(&report), None, None, None, None).await;
+    let _ = exec_service::update_session(pool, session_id, "completed", Some(&report), None, None, None, None).await;
+    broadcast(ws_hub, task_id, "completed", "調査完了").await;
+
+    // Cleanup
+    let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
+    ws_hub.remove_channel(&task_id).await;
+}
+
+/// 操作タスク: Claude autonomous で gh コマンド等を実行 → 結果を plan に保存 → 完了 (PR なし)
+async fn run_operation(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    task_id: Uuid,
+    session_id: Uuid,
+    title: &str,
+    description: &str,
+    plan: &str,
+    wt_path: &str,
+    repo_path: &str,
+    worktree_dir: &std::path::Path,
+) {
+    broadcast(ws_hub, task_id, "executing", "Operation Agent 起動中...").await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Executing, None, None, None, None, None).await;
+    log(pool, session_id, "operation", 1, "info", "操作開始").await;
+
+    let operation_prompt = format!(
+        "あなたは Operation Agent です。以下の操作計画に基づいて GitHub の操作を実行してください。\n\n\
+        ## タスク\n\
+        タイトル: {title}\n\
+        説明: {description}\n\n\
+        ## 操作計画\n\
+        {plan}\n\n\
+        ## 指示\n\
+        - 計画に従って gh コマンド等で GitHub の操作を実行してください\n\
+        - Issue のクローズ、作成、ラベル整理など、計画された操作を実行してください\n\
+        - 実行した操作の結果をレポートとして出力してください\n\
+        - コードの変更は行わないでください"
+    );
+
+    let result = match claude_cli::run_claude_autonomous(&operation_prompt, wt_path, 600).await {
+        Ok(r) => r,
+        Err(e) => {
+            fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &e).await;
+            return;
+        }
+    };
+
+    if result.exit_code != 0 {
+        let err = format!("Operation failed: {}", result.stderr);
+        fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &err).await;
+        return;
+    }
+
+    let report = result.stdout.clone();
+    log(pool, session_id, "operation", 1, "info", &format!("操作完了: {}bytes", report.len())).await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, Some(&report), None, None, None, None).await;
+    let _ = exec_service::update_session(pool, session_id, "completed", Some(&report), None, None, None, None).await;
+    broadcast(ws_hub, task_id, "completed", "操作完了").await;
 
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
