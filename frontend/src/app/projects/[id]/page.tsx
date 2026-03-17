@@ -6,21 +6,22 @@ import {
   fetchProject,
   fetchTasks,
   addRepository,
-  scanProject,
-  fetchScans,
+  createSprint,
+  fetchSprints,
+  fetchActiveSprint,
   fetchRepositoryIssues,
   approveTask,
   executeTask,
   cancelTask,
 } from "@/lib/api";
-import type { Project, ProjectRepository, Task, ScanSession } from "@/types";
+import type { Project, ProjectRepository, Task, Sprint } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PriorityBadge } from "@/components/PriorityBadge";
 import { IssueList } from "@/components/IssueList";
 import { PullRequestList } from "@/components/PullRequestList";
-import { ScanResultPanel } from "@/components/ScanResultPanel";
+import { SprintPanel } from "@/components/SprintPanel";
 
-type PageTab = "repositories" | "tasks" | "scans";
+type PageTab = "repositories" | "tasks" | "sprint";
 
 export default function ProjectDetailPage({
   params,
@@ -30,15 +31,15 @@ export default function ProjectDetailPage({
   const { id } = use(params);
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [scans, setScans] = useState<ScanSession[]>([]);
+  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [activeSprintId, setActiveSprintId] = useState<string | null>(null);
   const [showRepoForm, setShowRepoForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<PageTab>("repositories");
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [repoTab, setRepoTab] = useState<"issues" | "pulls">("issues");
   const [issueCounts, setIssueCounts] = useState<Record<string, number>>({});
-  const [activeScanId, setActiveScanId] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
+  const [creatingSprint, setCreatingSprint] = useState(false);
 
   const loadTasks = useCallback(() => {
     fetchTasks({ project_id: id })
@@ -46,9 +47,14 @@ export default function ProjectDetailPage({
       .catch(() => {});
   }, [id]);
 
-  const loadScans = useCallback(() => {
-    fetchScans(id)
-      .then((res) => setScans(res.data))
+  const loadSprints = useCallback(() => {
+    fetchSprints(id)
+      .then((res) => setSprints(res.data))
+      .catch(() => {});
+    fetchActiveSprint(id)
+      .then((res) => {
+        if (res.data) setActiveSprintId(res.data.id);
+      })
       .catch(() => {});
   }, [id]);
 
@@ -69,24 +75,24 @@ export default function ProjectDetailPage({
       })
       .catch((e) => setError(e.message));
     loadTasks();
-    loadScans();
-  }, [id, loadTasks, loadScans]);
+    loadSprints();
+  }, [id, loadTasks, loadSprints]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const handleScan = async () => {
-    setScanning(true);
+  const handleNewSprint = async () => {
+    setCreatingSprint(true);
     setError(null);
     try {
-      const res = await scanProject(id);
-      setActiveScanId(res.data.scan_id);
-      setActiveTab("scans");
+      const res = await createSprint(id);
+      setActiveSprintId(res.data.sprint_id);
+      setActiveTab("sprint");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Scan failed");
+      setError(e instanceof Error ? e.message : "Sprint creation failed");
     } finally {
-      setScanning(false);
+      setCreatingSprint(false);
     }
   };
 
@@ -111,11 +117,12 @@ export default function ProjectDetailPage({
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-xl font-semibold">{project.name}</h2>
         <button
-          onClick={handleScan}
-          disabled={scanning}
-          className="px-3 py-1.5 bg-gh-blue/90 text-white rounded-md hover:bg-gh-blue transition text-sm font-medium disabled:opacity-50"
+          onClick={handleNewSprint}
+          disabled={creatingSprint || !!activeSprintId}
+          className="px-3 py-1.5 bg-gh-purple/90 text-white rounded-md hover:bg-gh-purple transition text-sm font-medium disabled:opacity-50"
+          title={activeSprintId ? "アクティブなスプリントがあります" : ""}
         >
-          {scanning ? "スキャン中..." : "🔍 Scan"}
+          {creatingSprint ? "作成中..." : activeSprintId ? "Sprint 進行中" : "New Sprint"}
         </button>
       </div>
       {project.description && (
@@ -136,9 +143,11 @@ export default function ProjectDetailPage({
           Tasks
           <span className="ml-1.5 text-xs text-gh-text-muted">{tasks.length}</span>
         </button>
-        <button className={tabClass("scans")} onClick={() => setActiveTab("scans")}>
-          Scans
-          <span className="ml-1.5 text-xs text-gh-text-muted">{scans.length}</span>
+        <button className={tabClass("sprint")} onClick={() => setActiveTab("sprint")}>
+          Sprint
+          {activeSprintId && (
+            <span className="ml-1.5 w-2 h-2 rounded-full bg-gh-green inline-block animate-pulse" />
+          )}
         </button>
       </div>
 
@@ -166,11 +175,11 @@ export default function ProjectDetailPage({
         <TasksTab tasks={tasks} onRefresh={loadTasks} />
       )}
 
-      {activeTab === "scans" && (
-        <ScansTab
-          scans={scans}
-          activeScanId={activeScanId}
-          onTaskAction={() => { loadTasks(); loadScans(); }}
+      {activeTab === "sprint" && (
+        <SprintTab
+          sprints={sprints}
+          activeSprintId={activeSprintId}
+          onRefresh={() => { loadTasks(); loadSprints(); }}
         />
       )}
     </div>
@@ -450,52 +459,51 @@ function TasksTab({
   );
 }
 
-/* ─── Scans Tab ─── */
+/* ─── Sprint Tab ─── */
 
-function ScansTab({
-  scans,
-  activeScanId,
-  onTaskAction,
+function SprintTab({
+  sprints,
+  activeSprintId,
+  onRefresh,
 }: {
-  scans: ScanSession[];
-  activeScanId: string | null;
-  onTaskAction: () => void;
+  sprints: Sprint[];
+  activeSprintId: string | null;
+  onRefresh: () => void;
 }) {
-  const [selectedScanId, setSelectedScanId] = useState<string | null>(
-    activeScanId
+  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(
+    activeSprintId
   );
 
-  // activeScanId が変わったら追従
   useEffect(() => {
-    if (activeScanId) setSelectedScanId(activeScanId);
-  }, [activeScanId]);
+    if (activeSprintId) setSelectedSprintId(activeSprintId);
+  }, [activeSprintId]);
 
-  const viewScanId = selectedScanId || activeScanId;
+  const viewSprintId = selectedSprintId || activeSprintId;
 
   return (
     <div>
-      {/* Active scan (進行中) */}
-      {viewScanId && (
+      {/* Active sprint */}
+      {viewSprintId && (
         <div className="mb-6">
-          <ScanResultPanel scanId={viewScanId} onTaskAction={onTaskAction} />
+          <SprintPanel sprintId={viewSprintId} onRefresh={onRefresh} />
         </div>
       )}
 
-      {/* Scan History */}
-      {scans.length > 0 && (
+      {/* Sprint History */}
+      {sprints.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold text-gh-text-secondary uppercase tracking-wider mb-2">
-            Scan History
+            Sprint History
           </h4>
           <div className="rounded-lg border border-gh-border overflow-hidden">
-            {scans.map((scan, i) => (
+            {sprints.map((sprint, i) => (
               <button
-                key={scan.id}
-                onClick={() => setSelectedScanId(scan.id)}
+                key={sprint.id}
+                onClick={() => setSelectedSprintId(sprint.id)}
                 className={`w-full text-left px-4 py-2.5 flex items-center justify-between transition cursor-pointer ${
                   i > 0 ? "border-t border-gh-border" : ""
                 } ${
-                  scan.id === viewScanId
+                  sprint.id === viewSprintId
                     ? "bg-gh-blue/5"
                     : "hover:bg-gh-surface"
                 }`}
@@ -503,27 +511,27 @@ function ScansTab({
                 <div className="flex items-center gap-2">
                   <span
                     className={`w-2 h-2 rounded-full shrink-0 ${
-                      scan.status === "completed"
+                      sprint.status === "completed"
                         ? "bg-gh-green"
-                        : scan.status === "failed"
+                        : sprint.status === "failed"
                         ? "bg-gh-red"
-                        : "bg-gh-orange animate-pulse"
+                        : "bg-gh-purple animate-pulse"
                     }`}
                   />
                   <span className="text-sm text-gh-text-secondary">
-                    {new Date(scan.started_at).toLocaleString("ja-JP")}
+                    {new Date(sprint.created_at).toLocaleString("ja-JP")}
                   </span>
                 </div>
-                <span className="text-xs text-gh-text-muted">{scan.status}</span>
+                <span className="text-xs text-gh-text-muted">{sprint.status}</span>
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {!viewScanId && scans.length === 0 && (
+      {!viewSprintId && sprints.length === 0 && (
         <p className="text-gh-text-secondary text-sm">
-          まだスキャンを実行していません。右上の Scan ボタンで開始できます。
+          まだスプリントを実行していません。右上の New Sprint ボタンで開始できます。
         </p>
       )}
     </div>

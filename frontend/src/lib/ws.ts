@@ -1,4 +1,4 @@
-import type { WsMessage, ScanWsMessage } from "@/types";
+import type { WsMessage, ScanWsMessage, SprintWsMessage } from "@/types";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8100";
 
@@ -35,6 +35,29 @@ export function connectScanWs(
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data) as ScanWsMessage;
+      onMessage(data);
+    } catch {
+      console.warn("Invalid WS message:", event.data);
+    }
+  };
+
+  ws.onclose = () => {
+    onClose?.();
+  };
+
+  return ws;
+}
+
+export function connectSprintWs(
+  sprintId: string,
+  onMessage: (msg: SprintWsMessage) => void,
+  onClose?: () => void
+): WebSocket {
+  const ws = new WebSocket(`${WS_BASE}/ws/sprints/${sprintId}`);
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data) as SprintWsMessage;
       onMessage(data);
     } catch {
       console.warn("Invalid WS message:", event.data);

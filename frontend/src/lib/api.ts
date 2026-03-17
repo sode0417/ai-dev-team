@@ -140,6 +140,85 @@ export function fetchScanResult(scanId: string) {
   );
 }
 
+// Sprints
+export function createSprint(projectId: string) {
+  return request<{ data: { sprint_id: string } }>(`/api/projects/${projectId}/sprints`, {
+    method: "POST",
+  });
+}
+
+export function fetchSprints(projectId: string) {
+  return request<{ data: import("@/types").Sprint[] }>(
+    `/api/projects/${projectId}/sprints`
+  );
+}
+
+export function fetchActiveSprint(projectId: string) {
+  return request<{ data: import("@/types").SprintWithTasks | null }>(
+    `/api/projects/${projectId}/sprint/active`
+  );
+}
+
+export function fetchSprint(sprintId: string) {
+  return request<{ data: import("@/types").SprintWithTasks }>(
+    `/api/sprints/${sprintId}`
+  );
+}
+
+export function selectSprintTasks(
+  sprintId: string,
+  approvedTaskIds: string[],
+  rejectedTaskIds: string[]
+) {
+  return request<{ data: import("@/types").Task[] }>(
+    `/api/sprints/${sprintId}/select-tasks`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        approved_task_ids: approvedTaskIds,
+        rejected_task_ids: rejectedTaskIds,
+      }),
+    }
+  );
+}
+
+export function startSprintHearing(sprintId: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/start-hearing`,
+    { method: "POST" }
+  );
+}
+
+export function fetchSprintReadiness(sprintId: string) {
+  return request<{
+    data: {
+      all_ready: boolean;
+      tasks: { id: string; title: string; status: string }[];
+    };
+  }>(`/api/sprints/${sprintId}/readiness`);
+}
+
+export function createSprintPlan(sprintId: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/plan`,
+    { method: "POST" }
+  );
+}
+
+export function approveSprintPlan(sprintId: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/approve-plan`,
+    { method: "POST" }
+  );
+}
+
+export function submitSprintFeedback(sprintId: string, feedback: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/feedback`,
+    { method: "POST", body: JSON.stringify({ feedback }) }
+  );
+}
+
 // Executions
 export function fetchExecutions(taskId: string) {
   return request<{ data: import("@/types").ExecutionSession[] }>(

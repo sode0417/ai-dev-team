@@ -57,6 +57,7 @@ export interface Task {
   updated_at: string;
   scan_id: string | null;
   proposal_type: string;
+  sprint_id: string | null;
 }
 
 export interface ExecutionSession {
@@ -126,6 +127,41 @@ export interface ScanResult extends ScanSession {
 
 export interface ScanWsMessage {
   scan_id: string;
+  phase: string;
+  message: string;
+}
+
+export type SprintStatus =
+  | "selecting"
+  | "hearing"
+  | "planning"
+  | "executing"
+  | "retrospective"
+  | "completed"
+  | "failed";
+
+export interface Sprint {
+  id: string;
+  project_id: string;
+  status: SprintStatus;
+  scan_analysis: string | null;
+  priority_actions: string[] | null;
+  execution_plan: string | null;
+  retrospective: string | null;
+  improvement_suggestions: ImprovementSuggestion[] | null;
+  user_feedback: string | null;
+  error_log: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface SprintWithTasks extends Sprint {
+  tasks: Task[];
+}
+
+export interface SprintWsMessage {
+  sprint_id: string;
   phase: string;
   message: string;
 }
