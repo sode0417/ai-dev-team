@@ -10,6 +10,7 @@ import {
   createSprintPlan,
   approveSprintPlan,
   submitSprintFeedback,
+  cancelSprint,
 } from "@/lib/api";
 import { connectSprintWs } from "@/lib/ws";
 import type { SprintWithTasks, Task, SprintWsMessage } from "@/types";
@@ -98,6 +99,27 @@ export function SprintPanel({
         </div>
         <div className="flex items-center gap-2 text-xs text-gh-text-muted">
           <span>{activeTasks.length} tasks</span>
+          {sprint.status !== "completed" && sprint.status !== "failed" && (
+            <button
+              onClick={async () => {
+                if (!confirm("このスプリントをキャンセルしますか？進行中のタスクも中止されます。")) return;
+                setLoading(true);
+                try {
+                  await cancelSprint(sprintId);
+                  loadSprint();
+                  onRefresh?.();
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Failed");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="px-2 py-0.5 text-gh-red border border-gh-red/30 rounded hover:bg-gh-red/10 transition text-xs disabled:opacity-50"
+            >
+              キャンセル
+            </button>
+          )}
         </div>
       </div>
 
@@ -159,10 +181,10 @@ export function SprintPanel({
         <PlanningPhase
           sprint={sprint}
           loading={loading}
-          onApprove={async () => {
+          onApprove={async (maxParallel) => {
             setLoading(true);
             try {
-              await approveSprintPlan(sprintId);
+              await approveSprintPlan(sprintId, maxParallel);
               loadSprint();
             } catch (e) {
               setError(e instanceof Error ? e.message : "Failed");
@@ -460,8 +482,10 @@ function PlanningPhase({
 }: {
   sprint: SprintWithTasks;
   loading: boolean;
-  onApprove: () => void;
+  onApprove: (maxParallel: number) => void;
 }) {
+  const [maxParallel, setMaxParallel] = useState(3);
+
   if (!sprint.execution_plan) {
     return (
       <div className="flex items-center gap-3 p-4 rounded-lg border border-gh-border bg-gh-surface">
@@ -470,6 +494,17 @@ function PlanningPhase({
       </div>
     );
   }
+
+  // execution_group ごとのタスク数を集計
+  const groupCounts: Record<number, number> = {};
+  sprint.tasks
+    .filter((t) => t.status !== "cancelled" && t.status !== "proposed")
+    .forEach((t) => {
+      groupCounts[t.execution_group] = (groupCounts[t.execution_group] || 0) + 1;
+    });
+  const groupEntries = Object.entries(groupCounts)
+    .map(([g, c]) => ({ group: Number(g), count: c }))
+    .sort((a, b) => a.group - b.group);
 
   return (
     <div className="space-y-4">
@@ -482,14 +517,47 @@ function PlanningPhase({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      {/* 並列グループプレビュー */}
+      {groupEntries.length > 1 && (
+        <div className="p-4 rounded-lg border border-gh-border bg-gh-surface">
+          <h4 className="text-xs font-semibold text-gh-text-secondary uppercase mb-2">
+            並列実行グループ
+          </h4>
+          <div className="flex gap-2 flex-wrap">
+            {groupEntries.map(({ group, count }) => (
+              <span
+                key={group}
+                className="text-xs px-2 py-1 rounded-full bg-gh-blue/10 text-gh-blue"
+              >
+                Group {group}: {count}タスク
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4">
         <button
-          onClick={onApprove}
+          onClick={() => onApprove(maxParallel)}
           disabled={loading}
           className="px-4 py-2 bg-gh-green/90 text-white rounded-md hover:bg-gh-green transition text-sm font-medium disabled:opacity-50"
         >
           {loading ? "開始中..." : "承認して実行開始"}
         </button>
+        <label className="flex items-center gap-2 text-xs text-gh-text-muted">
+          最大並列数:
+          <select
+            value={maxParallel}
+            onChange={(e) => setMaxParallel(Number(e.target.value))}
+            className="px-2 py-1 bg-gh-canvas border border-gh-border rounded text-sm text-gh-text"
+          >
+            {[1, 2, 3, 4, 5].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   );
@@ -506,27 +574,57 @@ function ExecutingPhase({
 }) {
   const activeTasks = sprint.tasks.filter((t) => t.status !== "cancelled" && t.status !== "proposed");
 
+  // グループごとにタスクを分類
+  const groups: Record<number, Task[]> = {};
+  activeTasks.forEach((t) => {
+    const g = t.execution_group;
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(t);
+  });
+  const groupEntries = Object.entries(groups)
+    .map(([g, tasks]) => ({ group: Number(g), tasks }))
+    .sort((a, b) => a.group - b.group);
+
+  const hasMultipleGroups = groupEntries.length > 1;
+
   return (
     <div className="space-y-4">
-      {/* Task progress */}
+      {/* Task progress by group */}
       <div className="rounded-lg border border-gh-border overflow-hidden">
-        <div className="px-4 py-2.5 bg-gh-surface border-b border-gh-border">
+        <div className="px-4 py-2.5 bg-gh-surface border-b border-gh-border flex items-center justify-between">
           <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
             実行進捗
           </h4>
+          {sprint.max_parallel_tasks > 1 && (
+            <span className="text-[10px] text-gh-text-muted">
+              最大 {sprint.max_parallel_tasks} 並列
+            </span>
+          )}
         </div>
-        {activeTasks.map((task) => (
-          <div key={task.id} className="px-4 py-3 border-b border-gh-border last:border-0 flex items-center gap-3">
-            <StatusBadge status={task.status} />
-            <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
-              {task.title}
-            </Link>
-            {task.pr_url && (
-              <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
-                className="text-xs text-gh-link hover:underline shrink-0">
-                PR
-              </a>
+        {groupEntries.map(({ group, tasks }) => (
+          <div key={group}>
+            {hasMultipleGroups && (
+              <div className="px-4 py-1.5 bg-gh-canvas border-b border-gh-border">
+                <span className="text-[10px] font-medium text-gh-text-muted uppercase">
+                  Group {group}
+                  {tasks.length > 1 && " (並列)"}
+                </span>
+              </div>
             )}
+            {tasks.map((task) => (
+              <div key={task.id} className="px-4 py-3 border-b border-gh-border last:border-0 flex items-center gap-3">
+                <StatusBadge status={task.status} />
+                <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
+                  {task.title}
+                </Link>
+                {task.pr_url && (
+                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-gh-link hover:underline shrink-0">
+                    PR
+                  </a>
+                )}
+              </div>
+            ))}
           </div>
         ))}
       </div>

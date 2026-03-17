@@ -212,9 +212,19 @@ export function createSprintPlan(sprintId: string) {
   );
 }
 
-export function approveSprintPlan(sprintId: string) {
+export function approveSprintPlan(sprintId: string, maxParallelTasks?: number) {
   return request<{ data: import("@/types").Sprint }>(
     `/api/sprints/${sprintId}/approve-plan`,
+    {
+      method: "POST",
+      body: JSON.stringify({ max_parallel_tasks: maxParallelTasks ?? 3 }),
+    }
+  );
+}
+
+export function cancelSprint(sprintId: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/cancel`,
     { method: "POST" }
   );
 }

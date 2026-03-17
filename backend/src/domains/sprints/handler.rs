@@ -300,6 +300,50 @@ async fn approve_plan(
     Ok(Json(json!({ "data": sprint })))
 }
 
+/// POST /api/sprints/{id}/cancel — スプリント強制キャンセル
+async fn cancel_sprint(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(sprint_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let sprint = service::get_sprint(&state.pool, sprint_id).await?;
+    let status = SprintStatus::from_str(&sprint.status);
+
+    // 完了済み・失敗済みはキャンセル不可
+    if status == SprintStatus::Completed || status == SprintStatus::Failed {
+        return Err(AppError::Validation(
+            "Cannot cancel a completed or failed sprint".to_string(),
+        ));
+    }
+
+    // 紐づくタスクのうち進行中のものを cancelled に
+    let tasks = service::get_sprint_tasks(&state.pool, sprint_id).await?;
+    for task in &tasks {
+        if task.status != crate::domains::tasks::model::TaskStatus::Completed
+            && task.status != crate::domains::tasks::model::TaskStatus::Failed
+            && task.status != crate::domains::tasks::model::TaskStatus::Cancelled
+        {
+            let _ = crate::domains::tasks::service::update_task_execution(
+                &state.pool,
+                task.id,
+                crate::domains::tasks::model::TaskStatus::Cancelled,
+                None, None, None, None, None,
+            )
+            .await;
+        }
+    }
+
+    // スプリントを failed に
+    let sprint = service::fail_sprint(
+        &state.pool,
+        sprint_id,
+        "ユーザーによるキャンセル",
+    )
+    .await?;
+
+    Ok(Json(json!({ "data": sprint })))
+}
+
 /// POST /api/sprints/{id}/feedback — ユーザーフィードバック → スプリント完了
 async fn submit_feedback(
     State(state): State<AppState>,
@@ -335,5 +379,6 @@ pub fn sprint_routes() -> Router<AppState> {
         .route("/{id}/readiness", get(check_readiness))
         .route("/{id}/plan", post(create_plan))
         .route("/{id}/approve-plan", post(approve_plan))
+        .route("/{id}/cancel", post(cancel_sprint))
         .route("/{id}/feedback", post(submit_feedback))
 }
