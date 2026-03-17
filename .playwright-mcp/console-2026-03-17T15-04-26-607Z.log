@@ -1,0 +1,3 @@
+[     719ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:8100/api/tasks/1:0
+[     719ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:8100/api/tasks/1/executions:0
+[     720ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:8100/api/tasks/1/hearings:0

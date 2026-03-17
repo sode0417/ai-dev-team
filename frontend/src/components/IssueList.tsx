@@ -31,6 +31,7 @@ export function IssueList({
   useEffect(() => {
     setPage(1);
     load(1, state);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, projectId, repoId]);
 
   const loadMore = () => {

@@ -19,6 +19,7 @@ export function Sidebar() {
 
   // ページ遷移時にモバイルメニューを閉じる
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- close mobile menu on navigation
     setOpen(false);
   }, [pathname]);
 

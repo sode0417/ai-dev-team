@@ -82,6 +82,7 @@ export default function TaskDetailPage({
 
   // 初回ロード
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetch, setState is called after await
     load();
   }, [load]);
 
@@ -124,7 +125,7 @@ export default function TaskDetailPage({
   };
 
   if (error && !task) return <div className="text-gh-red">{error}</div>;
-  if (!task) return <div className="text-gh-text-secondary">読み込み中...</div>;
+  if (!task) return <TaskDetailSkeleton />;
 
   const currentPhase = task.status;
   const isTerminal = ["completed", "failed", "cancelled"].includes(currentPhase);
@@ -596,6 +597,27 @@ function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+function TaskDetailSkeleton() {
+  return (
+    <div className="max-w-4xl animate-pulse">
+      {/* 戻るボタン */}
+      <div className="w-12 h-4 bg-gh-border/50 rounded mb-3" />
+      {/* ヘッダー: バッジ + タイトル */}
+      <div className="flex items-center gap-3 mb-1">
+        <div className="w-16 h-5 bg-gh-border/50 rounded-full" />
+        <div className="w-12 h-5 bg-gh-border/50 rounded-full" />
+        <div className="w-64 h-6 bg-gh-border/50 rounded" />
+      </div>
+      {/* 説明文 */}
+      <div className="mb-5 pl-1 space-y-2 mt-2">
+        <div className="w-full h-4 bg-gh-border/50 rounded" />
+        <div className="w-3/4 h-4 bg-gh-border/50 rounded" />
+        <div className="w-40 h-3 bg-gh-border/50 rounded" />
+      </div>
+    </div>
   );
 }
 

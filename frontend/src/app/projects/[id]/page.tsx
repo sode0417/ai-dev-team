@@ -606,15 +606,9 @@ function SprintTab({
   activeSprintId: string | null;
   onRefresh: () => void;
 }) {
-  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(
-    activeSprintId
-  );
+  const [manualSprintId, setManualSprintId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (activeSprintId) setSelectedSprintId(activeSprintId);
-  }, [activeSprintId]);
-
-  const viewSprintId = selectedSprintId || activeSprintId;
+  const viewSprintId = manualSprintId || activeSprintId;
 
   return (
     <div>
@@ -635,7 +629,7 @@ function SprintTab({
             {sprints.map((sprint, i) => (
               <button
                 key={sprint.id}
-                onClick={() => setSelectedSprintId(sprint.id)}
+                onClick={() => setManualSprintId(sprint.id)}
                 className={`w-full text-left px-4 py-2.5 transition cursor-pointer ${
                   i > 0 ? "border-t border-gh-border" : ""
                 } ${
