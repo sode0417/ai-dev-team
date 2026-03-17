@@ -1,0 +1,50 @@
+name: バグ報告
+description: バグや不具合の報告
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        PM Agent がスプリント開始時にこの Issue をスキャンし、タスク候補として提案します。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 何が起きているか
+      description: 期待する動作と実際の動作を教えてください
+      placeholder: |
+        期待: ○○ボタンを押すとタスクが実行される
+        実際: エラーが表示されて実行されない
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: 対象
+      options:
+        - Backend (Rust/Axum)
+        - Frontend (Next.js)
+        - 両方
+        - その他/不明
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度
+      options:
+        - high (業務に支障あり)
+        - medium (回避策あり)
+        - low (軽微)
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足情報
+      description: 再現手順、エラーログ、スクリーンショットなど
+    validations:
+      required: false

@@ -1,0 +1,49 @@
+name: 機能追加・改善
+description: 新機能や既存機能の改善提案
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        PM Agent がスプリント開始時にこの Issue をスキャンし、タスク候補として提案します。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 実現したいこと
+      description: 何を実現したいですか？
+      placeholder: |
+        例: スプリントの実行計画画面でタスク間の依存関係を矢印で表示したい
+    validations:
+      required: true
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: 対象
+      options:
+        - Backend (Rust/Axum)
+        - Frontend (Next.js)
+        - 両方
+        - その他/不明
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 優先度
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 背景・補足
+      description: なぜこの機能が必要か、関連 Issue があればリンク
+    validations:
+      required: false
