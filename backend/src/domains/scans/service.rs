@@ -11,7 +11,7 @@ const SCAN_COLS: &str = "id, project_id, status, analysis, priority_actions, \
 const TASK_COLS: &str = "id, project_id, repository_id, title, description, status, priority, \
     depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
     retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-    scan_id, proposal_type";
+    scan_id, proposal_type, sprint_id";
 
 pub async fn create_scan(pool: &PgPool, project_id: Uuid) -> Result<ScanSession, AppError> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)")
@@ -125,6 +125,7 @@ pub async fn create_tasks_from_proposals(
     scan_id: Uuid,
     proposals: &[TaskProposal],
     repo_lookup: &std::collections::HashMap<String, Uuid>,
+    sprint_id: Option<Uuid>,
 ) -> Result<Vec<Task>, AppError> {
     let mut created = Vec::new();
 
@@ -150,8 +151,8 @@ pub async fn create_tasks_from_proposals(
             &format!(
                 "INSERT INTO tasks \
                     (project_id, repository_id, title, description, priority, \
-                     proposed_by, execution_order, scan_id, proposal_type) \
-                 VALUES ($1, $2, $3, $4, $5, 'scan', $6, $7, $8) \
+                     proposed_by, execution_order, scan_id, proposal_type, sprint_id) \
+                 VALUES ($1, $2, $3, $4, $5, 'scan', $6, $7, $8, $9) \
                  RETURNING {TASK_COLS}"
             ),
         )
@@ -163,6 +164,7 @@ pub async fn create_tasks_from_proposals(
         .bind(i as i32)
         .bind(scan_id)
         .bind(proposal_type)
+        .bind(sprint_id)
         .fetch_one(pool)
         .await?;
 

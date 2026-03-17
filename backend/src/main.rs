@@ -67,7 +67,7 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
          retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-         scan_id, proposal_type \
+         scan_id, proposal_type, sprint_id \
          FROM tasks ORDER BY updated_at DESC LIMIT 10",
     )
     .fetch_all(&state.pool)
@@ -164,6 +164,8 @@ async fn main() {
         .nest("/api/projects", domains::projects::handler::routes())
         .merge(Router::new().nest("/api/projects", domains::scans::handler::project_routes()))
         .nest("/api/scans", domains::scans::handler::scan_routes())
+        .merge(Router::new().nest("/api/projects", domains::sprints::handler::project_routes()))
+        .nest("/api/sprints", domains::sprints::handler::sprint_routes())
         .nest("/api/tasks", domains::tasks::handler::routes())
         .merge(
             Router::new()
@@ -172,6 +174,7 @@ async fn main() {
         )
         .route("/ws/executions/{task_id}", axum::routing::get(ws_handler))
         .route("/ws/scans/{scan_id}", axum::routing::get(ws_handler))
+        .route("/ws/sprints/{sprint_id}", axum::routing::get(ws_handler))
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer())
         .with_state(state);

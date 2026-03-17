@@ -5,30 +5,33 @@ use uuid::Uuid;
 use crate::domains::projects::model::ProjectRepository;
 use crate::domains::scans::model::ScanAnalysisOutput;
 use crate::domains::scans::service as scan_service;
+use crate::domains::sprints::service as sprint_service;
+use crate::domains::tasks::model::TaskStatus;
 use crate::executor::claude_cli;
 use crate::github::GitHubClient;
 use crate::ws::WsHub;
 
 /// スキャン実行のメインエントリポイント（バックグラウンドで呼ばれる）
+/// sprint_id を scan_id としても使用（scan_sessions テーブルとの互換性維持）
 pub async fn run_scan(
     pool: &PgPool,
     ws_hub: &WsHub,
     github: &GitHubClient,
     project_id: Uuid,
-    scan_id: Uuid,
+    sprint_id: Uuid,
     project_name: &str,
     project_description: Option<&str>,
     repositories: &[ProjectRepository],
 ) {
     let result = run_scan_inner(
-        pool, ws_hub, github, project_id, scan_id,
+        pool, ws_hub, github, project_id, sprint_id,
         project_name, project_description, repositories,
     ).await;
 
     if let Err(e) = result {
         tracing::error!("Scan failed: {e}");
-        let _ = scan_service::update_scan_failed(pool, scan_id, &e).await;
-        broadcast_progress(ws_hub, scan_id, "error", &format!("スキャン失敗: {e}")).await;
+        let _ = sprint_service::fail_sprint(pool, sprint_id, &e).await;
+        broadcast_progress(ws_hub, sprint_id, "error", &format!("スキャン失敗: {e}")).await;
     }
 }
 
@@ -37,13 +40,13 @@ async fn run_scan_inner(
     ws_hub: &WsHub,
     github: &GitHubClient,
     project_id: Uuid,
-    scan_id: Uuid,
+    sprint_id: Uuid,
     project_name: &str,
     project_description: Option<&str>,
     repositories: &[ProjectRepository],
 ) -> Result<(), String> {
     // 1. データ収集
-    broadcast_progress(ws_hub, scan_id, "collecting", "リポジトリデータを収集中...").await;
+    broadcast_progress(ws_hub, sprint_id, "collecting", "リポジトリデータを収集中...").await;
 
     let mut repo_sections = Vec::new();
     let mut repo_lookup: HashMap<String, Uuid> = HashMap::new();
@@ -55,20 +58,20 @@ async fn run_scan_inner(
         repo_sections.push(section);
 
         broadcast_progress(
-            ws_hub, scan_id, "collecting",
+            ws_hub, sprint_id, "collecting",
             &format!("{}/{} のデータ収集完了", repo.owner, repo.name),
         ).await;
     }
 
-    // 2. 振り返りデータ収集
-    broadcast_progress(ws_hub, scan_id, "retrospective", "過去のタスク実行結果を収集中...").await;
+    // 2. 振り返りデータ収集（前回スプリント含む）
+    broadcast_progress(ws_hub, sprint_id, "retrospective", "過去のスプリント・タスク実行結果を収集中...").await;
 
     let retro_section = collect_retrospective_data(pool, project_id).await;
 
     // 3. プロンプト構築
-    broadcast_progress(ws_hub, scan_id, "analyzing", "Claude で分析中...").await;
+    broadcast_progress(ws_hub, sprint_id, "analyzing", "Claude で分析中...").await;
 
-    let prompt = build_prompt(
+    let prompt = build_scan_prompt(
         project_name,
         project_description,
         &repo_sections,
@@ -93,41 +96,334 @@ async fn run_scan_inner(
     }
 
     // 5. JSON パース
-    broadcast_progress(ws_hub, scan_id, "parsing", "分析結果をパース中...").await;
+    broadcast_progress(ws_hub, sprint_id, "parsing", "分析結果をパース中...").await;
 
     let output = parse_analysis_output(&result.stdout)?;
 
-    // 6. タスク作成
-    broadcast_progress(ws_hub, scan_id, "creating_tasks", "タスクを作成中...").await;
+    // 6. タスク作成 (sprint_id を紐付け)
+    broadcast_progress(ws_hub, sprint_id, "creating_tasks", "タスクを作成中...").await;
 
     let priority_actions = serde_json::to_value(&output.priority_actions)
         .unwrap_or_default();
-    let improvement_suggestions = serde_json::to_value(&output.improvement_suggestions).ok();
+
+    // scan_sessions にも保存（後方互換）
+    let scan = scan_service::create_scan(pool, project_id).await
+        .map_err(|e| format!("Failed to create scan session: {e}"))?;
 
     let _tasks = scan_service::create_tasks_from_proposals(
-        pool, project_id, scan_id, &output.task_proposals, &repo_lookup,
+        pool, project_id, scan.id, &output.task_proposals, &repo_lookup, Some(sprint_id),
     )
     .await
     .map_err(|e| format!("Failed to create tasks: {e}"))?;
 
-    // 7. スキャンセッション完了更新
-    scan_service::update_scan_completed(
-        pool,
-        scan_id,
-        &output.summary,
-        &priority_actions,
-        output.retrospective.as_deref(),
-        improvement_suggestions.as_ref(),
-    )
-    .await
-    .map_err(|e| format!("Failed to update scan: {e}"))?;
+    let improvement_suggestions = serde_json::to_value(&output.improvement_suggestions).ok();
+
+    // scan_sessions 更新
+    let _ = scan_service::update_scan_completed(
+        pool, scan.id, &output.summary, &priority_actions,
+        output.retrospective.as_deref(), improvement_suggestions.as_ref(),
+    ).await;
+
+    // スプリントのスキャン結果を更新
+    sprint_service::update_scan_completed(pool, sprint_id, &output.summary, &priority_actions)
+        .await
+        .map_err(|e| format!("Failed to update sprint: {e}"))?;
 
     broadcast_progress(
-        ws_hub, scan_id, "completed",
+        ws_hub, sprint_id, "completed",
         &format!("スキャン完了: {}件のタスクを提案", output.task_proposals.len()),
     ).await;
 
     Ok(())
+}
+
+/// スプリント計画: PM Agent が実行順序を決定
+pub async fn run_sprint_planning(pool: &PgPool, ws_hub: &WsHub, sprint_id: Uuid) {
+    let result = run_sprint_planning_inner(pool, ws_hub, sprint_id).await;
+
+    if let Err(e) = result {
+        tracing::error!("Sprint planning failed: {e}");
+        let _ = sprint_service::fail_sprint(pool, sprint_id, &e).await;
+        broadcast_progress(ws_hub, sprint_id, "error", &format!("計画失敗: {e}")).await;
+    }
+}
+
+async fn run_sprint_planning_inner(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    sprint_id: Uuid,
+) -> Result<(), String> {
+    broadcast_progress(ws_hub, sprint_id, "planning", "実行計画を作成中...").await;
+
+    let sprint = sprint_service::get_sprint_with_tasks(pool, sprint_id)
+        .await
+        .map_err(|e| format!("Failed to get sprint: {e}"))?;
+
+    // awaiting_approval のタスクのみ対象
+    let ready_tasks: Vec<_> = sprint.tasks.iter()
+        .filter(|t| t.status == TaskStatus::AwaitingApproval)
+        .collect();
+
+    if ready_tasks.is_empty() {
+        return Err("No tasks ready for planning".to_string());
+    }
+
+    // タスク情報をプロンプトに
+    let tasks_info: Vec<String> = ready_tasks.iter().enumerate().map(|(i, t)| {
+        let plan_summary = t.plan.as_deref().unwrap_or("計画なし");
+        let plan_short = if plan_summary.len() > 300 {
+            &plan_summary[..300]
+        } else {
+            plan_summary
+        };
+        format!(
+            "{}. [{}] {} (priority: {:?})\n   説明: {}\n   計画概要: {}",
+            i + 1, t.id, t.title, t.priority, t.description, plan_short
+        )
+    }).collect();
+
+    let prompt = format!(
+        r#"あなたは PM Agent です。以下のタスクの実行順序を決定してください。
+
+## タスク一覧
+{}
+
+## 出力指示
+以下の情報を含む実行計画を Markdown で出力してください:
+
+1. **実行順序**: タスクの最適な実行順序とその理由
+2. **依存関係**: タスク間の依存関係（あれば）
+3. **リスク**: 注意すべきリスクや並行実行できないもの
+4. **見積もり**: 全体の実行時間の概算
+
+タスク ID と実行順序の対応を以下の JSON も最後に含めてください:
+```json
+[{{"task_id": "uuid", "order": 1}}, ...]
+```"#,
+        tasks_info.join("\n\n")
+    );
+
+    let working_dir = "/tmp";
+    let result = claude_cli::run_claude(&prompt, working_dir, 180)
+        .await
+        .map_err(|e| format!("Claude CLI error: {e}"))?;
+
+    if result.exit_code != 0 {
+        return Err(format!("Planning failed: {}", result.stderr));
+    }
+
+    let plan = result.stdout.clone();
+
+    // タスクの execution_order を更新
+    if let Some(orders) = extract_task_orders(&result.stdout) {
+        for (task_id, order) in orders {
+            let _ = sqlx::query(
+                "UPDATE tasks SET execution_order = $2, updated_at = NOW() WHERE id = $1"
+            )
+            .bind(task_id)
+            .bind(order)
+            .execute(pool)
+            .await;
+        }
+    }
+
+    // スプリントに計画を保存（status は planning のまま、ユーザー承認待ち）
+    sqlx::query(
+        "UPDATE sprints SET execution_plan = $2 WHERE id = $1"
+    )
+    .bind(sprint_id)
+    .bind(&plan)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to save plan: {e}"))?;
+
+    broadcast_progress(ws_hub, sprint_id, "plan_ready", "実行計画が完成しました。承認をお願いします。").await;
+
+    Ok(())
+}
+
+/// スプリント実行: タスクを順次実行
+pub async fn run_sprint_execution(pool: &PgPool, ws_hub: &WsHub, sprint_id: Uuid) {
+    let result = run_sprint_execution_inner(pool, ws_hub, sprint_id).await;
+
+    if let Err(e) = result {
+        tracing::error!("Sprint execution failed: {e}");
+        let _ = sprint_service::fail_sprint(pool, sprint_id, &e).await;
+        broadcast_progress(ws_hub, sprint_id, "error", &format!("実行失敗: {e}")).await;
+    }
+}
+
+async fn run_sprint_execution_inner(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    sprint_id: Uuid,
+) -> Result<(), String> {
+    let tasks = sprint_service::get_sprint_tasks(pool, sprint_id)
+        .await
+        .map_err(|e| format!("Failed to get tasks: {e}"))?;
+
+    let mut executable: Vec<_> = tasks.into_iter()
+        .filter(|t| t.status == TaskStatus::AwaitingApproval)
+        .collect();
+    executable.sort_by_key(|t| t.execution_order);
+
+    let total = executable.len();
+
+    for (i, task) in executable.iter().enumerate() {
+        broadcast_progress(
+            ws_hub, sprint_id, "executing",
+            &format!("タスク実行中 ({}/{total}): {}", i + 1, task.title),
+        ).await;
+
+        // リポジトリ情報取得
+        let repo_id = match task.repository_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!("Task {} has no repository, skipping", task.id);
+                continue;
+            }
+        };
+
+        let repo: Option<ProjectRepository> = sqlx::query_as(
+            "SELECT id, project_id, owner, name, default_branch, local_path, created_at \
+             FROM project_repositories WHERE id = $1",
+        )
+        .bind(repo_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("DB error: {e}"))?;
+
+        let local_path = match repo.and_then(|r| r.local_path) {
+            Some(p) => p,
+            None => {
+                tracing::warn!("Task {} repository has no local_path, skipping", task.id);
+                continue;
+            }
+        };
+
+        // タスクの計画承認 → 実行
+        let _ = crate::domains::tasks::service::approve_plan(pool, task.id).await;
+
+        // 実行フェーズ（同期的に完了を待つ）
+        crate::executor::pipeline::run_execution_phase(
+            pool, ws_hub, task.id, &task.title, &task.description,
+            &local_path, &task.proposal_type,
+        ).await;
+
+        // 実行結果を確認
+        let updated_task = crate::domains::tasks::service::get_task(pool, task.id)
+            .await
+            .map_err(|e| format!("Failed to get task: {e}"))?;
+
+        let status_icon = match updated_task.status {
+            TaskStatus::Completed => "✅",
+            TaskStatus::Failed => "❌",
+            _ => "⏳",
+        };
+
+        broadcast_progress(
+            ws_hub, sprint_id, "task_done",
+            &format!("{status_icon} ({}/{total}) {} — {:?}", i + 1, task.title, updated_task.status),
+        ).await;
+    }
+
+    // 全タスク完了 → 振り返りフェーズ
+    broadcast_progress(ws_hub, sprint_id, "generating_retro", "振り返りを生成中...").await;
+
+    run_retrospective(pool, ws_hub, sprint_id).await?;
+
+    broadcast_progress(ws_hub, sprint_id, "retrospective", "スプリント完了。フィードバックをお願いします。").await;
+
+    Ok(())
+}
+
+/// 振り返り生成
+async fn run_retrospective(
+    pool: &PgPool,
+    _ws_hub: &WsHub,
+    sprint_id: Uuid,
+) -> Result<(), String> {
+    let sprint = sprint_service::get_sprint_with_tasks(pool, sprint_id)
+        .await
+        .map_err(|e| format!("Failed to get sprint: {e}"))?;
+
+    let task_results: Vec<String> = sprint.tasks.iter()
+        .filter(|t| t.status != TaskStatus::Cancelled && t.status != TaskStatus::Proposed)
+        .map(|t| {
+            let status = match t.status {
+                TaskStatus::Completed => "成功",
+                TaskStatus::Failed => "失敗",
+                _ => "未完了",
+            };
+            let pr = t.pr_url.as_deref().unwrap_or("PR なし");
+            let err = t.error_log.as_deref().map(|e| {
+                let short = if e.len() > 200 { &e[..200] } else { e };
+                format!("\n   エラー: {short}")
+            }).unwrap_or_default();
+            format!("- [{}] {} → {}{}", status, t.title, pr, err)
+        })
+        .collect();
+
+    let prompt = format!(
+        r#"あなたは PM Agent です。スプリントの振り返りを行ってください。
+
+## スプリント分析
+{}
+
+## タスク実行結果
+{}
+
+## 出力指示
+以下を含む振り返りを Markdown で出力してください:
+1. **成果**: 何が達成できたか
+2. **課題**: 何がうまくいかなかったか
+3. **改善点**: 次のスプリントに活かすべきこと
+4. **提案**: プロンプトやプロセスの改善提案"#,
+        sprint.sprint.scan_analysis.as_deref().unwrap_or("分析なし"),
+        task_results.join("\n"),
+    );
+
+    let result = claude_cli::run_claude(&prompt, "/tmp", 120)
+        .await
+        .map_err(|e| format!("Retrospective generation failed: {e}"))?;
+
+    let retrospective = if result.exit_code == 0 {
+        result.stdout
+    } else {
+        format!("振り返り生成に失敗: {}", result.stderr)
+    };
+
+    sprint_service::save_retrospective(pool, sprint_id, &retrospective, None)
+        .await
+        .map_err(|e| format!("Failed to save retrospective: {e}"))?;
+
+    Ok(())
+}
+
+/// 実行順序 JSON を抽出
+fn extract_task_orders(output: &str) -> Option<Vec<(Uuid, i32)>> {
+    // ```json [...] ``` ブロックから抽出
+    let json_str = if let Some(start) = output.rfind("[{") {
+        let end = output[start..].find("]").map(|e| start + e + 1)?;
+        &output[start..end]
+    } else {
+        return None;
+    };
+
+    #[derive(serde::Deserialize)]
+    struct TaskOrder {
+        task_id: String,
+        order: i32,
+    }
+
+    let orders: Vec<TaskOrder> = serde_json::from_str(json_str).ok()?;
+    let result: Vec<_> = orders.iter()
+        .filter_map(|o| {
+            Uuid::parse_str(&o.task_id).ok().map(|id| (id, o.order))
+        })
+        .collect();
+
+    if result.is_empty() { None } else { Some(result) }
 }
 
 /// 単一リポジトリのデータを収集してプロンプト用のテキストにまとめる
@@ -180,52 +476,51 @@ async fn collect_repo_data(github: &GitHubClient, owner: &str, repo: &str) -> St
     section
 }
 
-/// 振り返りデータを収集
+/// 振り返りデータを収集（前回スプリント含む）
 async fn collect_retrospective_data(pool: &PgPool, project_id: Uuid) -> String {
     let mut section = String::new();
 
-    // 直近の完了/失敗タスク
-    if let Ok(tasks) = scan_service::get_recent_completed_tasks(pool, project_id, 10).await {
-        let completed: Vec<_> = tasks.iter().filter(|t| t.status == crate::domains::tasks::model::TaskStatus::Completed).collect();
-        let failed: Vec<_> = tasks.iter().filter(|t| t.status == crate::domains::tasks::model::TaskStatus::Failed).collect();
-
-        if !completed.is_empty() {
-            section.push_str("### 完了タスク\n");
-            for t in &completed {
-                let pr = t.pr_url.as_deref().unwrap_or("PR なし");
-                let diff = t.diff_stats.as_deref().unwrap_or("");
-                section.push_str(&format!("- \"{}\" → {} ({})\n", t.title, pr, diff));
-            }
+    // 前回のスプリント振り返り
+    if let Ok(Some(last_sprint)) = sprint_service::get_last_completed_sprint(pool, project_id).await {
+        section.push_str("### 前回のスプリント振り返り\n");
+        if let Some(ref retro) = last_sprint.sprint.retrospective {
+            section.push_str(&format!("{retro}\n"));
+        }
+        if let Some(ref fb) = last_sprint.sprint.user_feedback {
+            section.push_str(&format!("\nユーザーフィードバック: {fb}\n"));
         }
 
+        // 前回スプリントのタスク結果
+        let completed: Vec<_> = last_sprint.tasks.iter()
+            .filter(|t| t.status == TaskStatus::Completed)
+            .collect();
+        let failed: Vec<_> = last_sprint.tasks.iter()
+            .filter(|t| t.status == TaskStatus::Failed)
+            .collect();
+
+        if !completed.is_empty() {
+            section.push_str("\n完了タスク:\n");
+            for t in &completed {
+                let pr = t.pr_url.as_deref().unwrap_or("PR なし");
+                section.push_str(&format!("- \"{}\" → {}\n", t.title, pr));
+            }
+        }
         if !failed.is_empty() {
-            section.push_str("\n### 失敗タスク\n");
+            section.push_str("\n失敗タスク:\n");
             for t in &failed {
                 let err = t.error_log.as_deref().unwrap_or("エラーログなし");
-                // エラーログは最初の200文字に制限
-                let err_summary = if err.len() > 200 { &err[..200] } else { err };
-                section.push_str(&format!(
-                    "- \"{}\" (リトライ{}回) — {}\n",
-                    t.title, t.retry_count, err_summary
-                ));
+                let err_short = if err.len() > 200 { &err[..200] } else { err };
+                section.push_str(&format!("- \"{}\" — {}\n", t.title, err_short));
             }
         }
     }
 
-    // 前回のスキャン分析
-    if let Ok(Some(last_scan)) = scan_service::get_last_scan(pool, project_id).await {
-        section.push_str("\n### 前回のスキャン分析\n");
-        if let Some(ref analysis) = last_scan.analysis {
-            section.push_str(&format!("{analysis}\n"));
-        }
-        if let Some(ref actions) = last_scan.priority_actions {
-            if let Some(arr) = actions.as_array() {
-                section.push_str("前回の優先アクション:\n");
-                for action in arr {
-                    if let Some(s) = action.as_str() {
-                        section.push_str(&format!("- {s}\n"));
-                    }
-                }
+    // 前回のスキャン分析（フォールバック）
+    if section.is_empty() {
+        if let Ok(Some(last_scan)) = scan_service::get_last_scan(pool, project_id).await {
+            section.push_str("### 前回のスキャン分析\n");
+            if let Some(ref analysis) = last_scan.analysis {
+                section.push_str(&format!("{analysis}\n"));
             }
         }
     }
@@ -233,7 +528,7 @@ async fn collect_retrospective_data(pool: &PgPool, project_id: Uuid) -> String {
     section
 }
 
-fn build_prompt(
+fn build_scan_prompt(
     project_name: &str,
     project_description: Option<&str>,
     repo_sections: &[String],
@@ -243,13 +538,13 @@ fn build_prompt(
     let repos = repo_sections.join("\n");
 
     let retro_block = if retro_section.is_empty() {
-        "（初回スキャン — 過去データなし）".to_string()
+        "（初回スプリント — 過去データなし）".to_string()
     } else {
         retro_section.to_string()
     };
 
     format!(
-        r#"あなたは PM Agent です。プロジェクトの分析と振り返りを行い、タスク提案を JSON で生成してください。
+        r#"あなたは PM Agent です。プロジェクトの分析と振り返りを行い、次のスプリントのタスク提案を JSON で生成してください。
 
 ## プロジェクト: {project_name}
 {desc}
@@ -257,7 +552,7 @@ fn build_prompt(
 ## リポジトリ分析
 {repos}
 
-## 過去のタスク実行結果（振り返り）
+## 過去のスプリント振り返り
 {retro_block}
 
 ## 出力指示
@@ -286,8 +581,8 @@ fn build_prompt(
 }}
 
 ルール:
+- ユーザーは Issue に簡単なバグ・改善を書いているので、それをタスク化する
 - 失敗パターンが繰り返されている場合、improvement タスクとして改善を提案
-- CLAUDE.md の内容が実態と乖離していれば improvement タスクを提案
 - investigation は不明点の調査が必要な場合のみ
 - operation は Issue クローズ/作成/ラベル整理など GitHub 操作タスク（コード変更なし）
 - タスクは具体的かつ実行可能なものに限定（最大8件）
@@ -328,11 +623,11 @@ fn parse_analysis_output(stdout: &str) -> Result<ScanAnalysisOutput, String> {
         .map_err(|e| format!("Failed to parse analysis JSON: {e}\nRaw output:\n{stdout}"))
 }
 
-async fn broadcast_progress(ws_hub: &WsHub, scan_id: Uuid, phase: &str, message: &str) {
+async fn broadcast_progress(ws_hub: &WsHub, id: Uuid, phase: &str, message: &str) {
     let msg = serde_json::json!({
-        "scan_id": scan_id.to_string(),
+        "sprint_id": id.to_string(),
         "phase": phase,
         "message": message,
     });
-    ws_hub.broadcast(scan_id, &msg.to_string()).await;
+    ws_hub.broadcast(id, &msg.to_string()).await;
 }

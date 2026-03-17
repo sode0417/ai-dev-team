@@ -56,6 +56,7 @@ pub struct Task {
     pub updated_at: DateTime<Utc>,
     pub scan_id: Option<Uuid>,
     pub proposal_type: String,
+    pub sprint_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
