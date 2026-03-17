@@ -31,6 +31,13 @@ export function fetchProject(id: string) {
   return request<{ data: import("@/types").Project }>(`/api/projects/${id}`);
 }
 
+export function updateProject(id: string, body: { name?: string; description?: string }) {
+  return request<{ data: import("@/types").Project }>(`/api/projects/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
 export function createProject(body: { name: string; description?: string }) {
   return request<{ data: import("@/types").Project }>("/api/projects", {
     method: "POST",

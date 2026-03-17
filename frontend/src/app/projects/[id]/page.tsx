@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback, use } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   fetchProject,
   fetchTasks,
   addRepository,
+  updateProject,
   createSprint,
   fetchSprints,
   fetchActiveSprint,
@@ -29,13 +31,16 @@ export default function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get("tab") as PageTab) || "repositories";
+
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [activeSprintId, setActiveSprintId] = useState<string | null>(null);
   const [showRepoForm, setShowRepoForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<PageTab>("repositories");
+  const [activeTab, setActiveTab] = useState<PageTab>(initialTab);
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [repoTab, setRepoTab] = useState<"issues" | "pulls">("issues");
   const [issueCounts, setIssueCounts] = useState<Record<string, number>>({});
@@ -113,9 +118,12 @@ export default function ProjectDetailPage({
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="text-xl font-semibold">{project.name}</h2>
+      {/* Header — inline editable */}
+      <ProjectHeader
+        project={project}
+        onUpdated={(p) => setProject({ ...project, ...p })}
+      />
+      <div className="flex items-center justify-end mb-2">
         <button
           onClick={handleNewSprint}
           disabled={creatingSprint || !!activeSprintId}
@@ -125,11 +133,6 @@ export default function ProjectDetailPage({
           {creatingSprint ? "作成中..." : activeSprintId ? "Sprint 進行中" : "New Sprint"}
         </button>
       </div>
-      {project.description && (
-        <p className="text-gh-text-secondary text-sm mb-4">
-          {project.description}
-        </p>
-      )}
 
       {error && <div className="text-gh-red mb-4 text-sm">{error}</div>}
 
@@ -172,7 +175,7 @@ export default function ProjectDetailPage({
       )}
 
       {activeTab === "tasks" && (
-        <TasksTab tasks={tasks} onRefresh={loadTasks} />
+        <TasksTab tasks={tasks} activeSprintId={activeSprintId} onRefresh={loadTasks} />
       )}
 
       {activeTab === "sprint" && (
@@ -181,6 +184,112 @@ export default function ProjectDetailPage({
           activeSprintId={activeSprintId}
           onRefresh={() => { loadTasks(); loadSprints(); }}
         />
+      )}
+    </div>
+  );
+}
+
+/* ─── Project Header (inline editable) ─── */
+
+function ProjectHeader({
+  project,
+  onUpdated,
+}: {
+  project: Project;
+  onUpdated: (p: { name: string; description: string | null }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(project.name);
+  const [description, setDescription] = useState(project.description || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await updateProject(project.id, {
+        name: name.trim(),
+        description: description.trim() || undefined,
+      });
+      onUpdated({ name: name.trim(), description: description.trim() || null });
+      setEditing(false);
+    } catch {
+      // keep editing on error
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setName(project.name);
+    setDescription(project.description || "");
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSave();
+    }
+    if (e.key === "Escape") handleCancel();
+  };
+
+  if (editing) {
+    return (
+      <div className="mb-2 space-y-2">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
+          className="w-full text-xl font-semibold bg-gh-canvas border border-gh-border rounded-md px-3 py-1.5 text-gh-text focus:outline-none focus:border-gh-blue focus:ring-1 focus:ring-gh-blue/40"
+        />
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Description (optional)"
+          className="w-full text-sm bg-gh-canvas border border-gh-border rounded-md px-3 py-1.5 text-gh-text-secondary focus:outline-none focus:border-gh-blue focus:ring-1 focus:ring-gh-blue/40"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || !name.trim()}
+            className="px-2.5 py-1 text-xs font-medium rounded-md bg-gh-green/15 text-gh-green hover:bg-gh-green/25 transition disabled:opacity-50"
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
+          <button
+            onClick={handleCancel}
+            className="px-2.5 py-1 text-xs font-medium rounded-md text-gh-text-secondary hover:bg-gh-overlay transition"
+          >
+            キャンセル
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group mb-1">
+      <div className="flex items-center gap-2">
+        <h2 className="text-xl font-semibold">{project.name}</h2>
+        <button
+          onClick={() => setEditing(true)}
+          className="opacity-0 group-hover:opacity-100 text-gh-text-muted hover:text-gh-text transition p-1"
+          title="編集"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z" />
+          </svg>
+        </button>
+      </div>
+      {project.description && (
+        <p className="text-gh-text-secondary text-sm mt-0.5">
+          {project.description}
+        </p>
       )}
     </div>
   );
@@ -309,15 +418,19 @@ const STATUS_FILTERS = [
 ] as const;
 
 type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+type SprintFilter = "current" | "all";
 
 function TasksTab({
   tasks,
+  activeSprintId,
   onRefresh,
 }: {
   tasks: Task[];
+  activeSprintId: string | null;
   onRefresh: () => void;
 }) {
   const [filter, setFilter] = useState<StatusFilter>("active");
+  const [sprintFilter, setSprintFilter] = useState<SprintFilter>(activeSprintId ? "current" : "all");
 
   const handleAction = async (action: "approve" | "execute" | "execute-skip" | "cancel", taskId: string) => {
     try {
@@ -331,42 +444,65 @@ function TasksTab({
     }
   };
 
-  const currentFilter = STATUS_FILTERS.find((f) => f.value === filter)!;
-  const filteredTasks = tasks.filter((t) => currentFilter.match(t.status));
+  // Sprint filter first, then status filter
+  const sprintFiltered = sprintFilter === "current" && activeSprintId
+    ? tasks.filter((t) => t.sprint_id === activeSprintId)
+    : tasks;
 
-  // 各フィルタのカウント
+  const currentFilter = STATUS_FILTERS.find((f) => f.value === filter)!;
+  const filteredTasks = sprintFiltered.filter((t) => currentFilter.match(t.status));
+
   const counts: Record<StatusFilter, number> = {
-    active: tasks.filter((t) => STATUS_FILTERS[0].match(t.status)).length,
-    completed: tasks.filter((t) => t.status === "completed").length,
-    failed: tasks.filter((t) => t.status === "failed").length,
-    cancelled: tasks.filter((t) => t.status === "cancelled").length,
-    all: tasks.length,
+    active: sprintFiltered.filter((t) => STATUS_FILTERS[0].match(t.status)).length,
+    completed: sprintFiltered.filter((t) => t.status === "completed").length,
+    failed: sprintFiltered.filter((t) => t.status === "failed").length,
+    cancelled: sprintFiltered.filter((t) => t.status === "cancelled").length,
+    all: sprintFiltered.length,
   };
 
   if (tasks.length === 0) {
     return <p className="text-gh-text-secondary text-sm">タスクはまだありません</p>;
   }
 
+  const sprintBtnClass = (v: SprintFilter) =>
+    `px-2.5 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
+      sprintFilter === v
+        ? "bg-gh-purple/15 text-gh-purple"
+        : "text-gh-text-secondary hover:bg-gh-overlay hover:text-gh-text"
+    }`;
+
   return (
     <div>
-      {/* Filter bar */}
-      <div className="flex gap-1 mb-3 flex-wrap">
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.value}
-            onClick={() => setFilter(f.value)}
-            className={`px-2.5 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
-              filter === f.value
-                ? "bg-gh-blue/15 text-gh-blue"
-                : "text-gh-text-secondary hover:bg-gh-overlay hover:text-gh-text"
-            }`}
-          >
-            {f.label}
-            {counts[f.value] > 0 && (
-              <span className="ml-1 text-[10px] opacity-70">{counts[f.value]}</span>
-            )}
-          </button>
-        ))}
+      {/* Sprint filter + Status filter */}
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        {activeSprintId && (
+          <div className="flex gap-1 pr-3 border-r border-gh-border">
+            <button className={sprintBtnClass("current")} onClick={() => setSprintFilter("current")}>
+              Current Sprint
+            </button>
+            <button className={sprintBtnClass("all")} onClick={() => setSprintFilter("all")}>
+              All
+            </button>
+          </div>
+        )}
+        <div className="flex gap-1 flex-wrap">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition cursor-pointer ${
+                filter === f.value
+                  ? "bg-gh-blue/15 text-gh-blue"
+                  : "text-gh-text-secondary hover:bg-gh-overlay hover:text-gh-text"
+              }`}
+            >
+              {f.label}
+              {counts[f.value] > 0 && (
+                <span className="ml-1 text-[10px] opacity-70">{counts[f.value]}</span>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {filteredTasks.length === 0 ? (
@@ -500,7 +636,7 @@ function SprintTab({
               <button
                 key={sprint.id}
                 onClick={() => setSelectedSprintId(sprint.id)}
-                className={`w-full text-left px-4 py-2.5 flex items-center justify-between transition cursor-pointer ${
+                className={`w-full text-left px-4 py-2.5 transition cursor-pointer ${
                   i > 0 ? "border-t border-gh-border" : ""
                 } ${
                   sprint.id === viewSprintId
@@ -508,21 +644,33 @@ function SprintTab({
                     : "hover:bg-gh-surface"
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      sprint.status === "completed"
-                        ? "bg-gh-green"
-                        : sprint.status === "failed"
-                        ? "bg-gh-red"
-                        : "bg-gh-purple animate-pulse"
-                    }`}
-                  />
-                  <span className="text-sm text-gh-text-secondary">
-                    {new Date(sprint.created_at).toLocaleString("ja-JP")}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        sprint.status === "completed"
+                          ? "bg-gh-green"
+                          : sprint.status === "failed"
+                          ? "bg-gh-red"
+                          : "bg-gh-purple animate-pulse"
+                      }`}
+                    />
+                    <span className="text-sm text-gh-text-secondary">
+                      {new Date(sprint.created_at).toLocaleString("ja-JP")}
+                    </span>
+                    <span className="text-xs text-gh-text-muted">{sprint.status}</span>
+                  </div>
                 </div>
-                <span className="text-xs text-gh-text-muted">{sprint.status}</span>
+                {/* Preview for completed sprints */}
+                {sprint.status === "completed" && (sprint.scan_analysis || sprint.retrospective) && (
+                  <p className="text-xs text-gh-text-muted mt-1 line-clamp-1 pl-4">
+                    {sprint.retrospective
+                      ? sprint.retrospective.slice(0, 120)
+                      : sprint.scan_analysis
+                      ? sprint.scan_analysis.slice(0, 120)
+                      : ""}
+                  </p>
+                )}
               </button>
             ))}
           </div>

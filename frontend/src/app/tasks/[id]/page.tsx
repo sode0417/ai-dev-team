@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   fetchTask,
   fetchExecutions,
@@ -164,6 +165,15 @@ export default function TaskDetailPage({
           {task.started_at && <span>開始: {new Date(task.started_at).toLocaleString("ja-JP")}</span>}
           {task.completed_at && <span>完了: {new Date(task.completed_at).toLocaleString("ja-JP")}</span>}
         </div>
+        {task.sprint_id && (
+          <Link
+            href={`/projects/${task.project_id}?tab=sprint`}
+            className="inline-flex items-center gap-1 text-xs text-gh-purple hover:underline mt-1"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-gh-purple inline-block" />
+            Sprint
+          </Link>
+        )}
       </div>
 
       {error && <div className="text-gh-red mb-4 text-sm">{error}</div>}
