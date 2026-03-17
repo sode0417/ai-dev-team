@@ -164,10 +164,17 @@ async fn start_hearing(
         .fetch_optional(&state.pool)
         .await?;
 
-        let local_path = match repo.and_then(|r| r.local_path) {
+        let repo = match repo {
+            Some(r) => r,
+            None => continue,
+        };
+
+        let local_path = match repo.local_path {
             Some(p) => p,
             None => continue,
         };
+
+        let default_branch = repo.default_branch.clone();
 
         // タスクを hearing 状態に
         crate::domains::tasks::service::update_task_execution(
@@ -183,7 +190,7 @@ async fn start_hearing(
         let task_id = task.id;
         let task_title = task.title.clone();
         let task_description = task.description.clone();
-        let branch = String::new(); // worktree は hearing_phase 内で処理
+        let branch = default_branch;
         let proposal_type = task.proposal_type.clone();
 
         tokio::spawn(async move {
@@ -264,6 +271,7 @@ async fn approve_plan(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(sprint_id): Path<Uuid>,
+    body: Option<Json<ApprovePlanRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
     if SprintStatus::from_str(&sprint.status) != SprintStatus::Planning {
@@ -272,9 +280,14 @@ async fn approve_plan(
         ));
     }
 
+    // max_parallel_tasks をリクエストから取得（デフォルト 3）
+    let max_parallel = body
+        .and_then(|b| b.max_parallel_tasks)
+        .unwrap_or(3);
+
     // executing に遷移（execution_plan は planning フェーズで既に設定済み）
     let plan = sprint.execution_plan.clone().unwrap_or_default();
-    let sprint = service::approve_plan(&state.pool, sprint_id, &plan).await?;
+    let sprint = service::approve_plan(&state.pool, sprint_id, &plan, max_parallel).await?;
 
     // バックグラウンドでスプリント実行
     let pool = state.pool.clone();
