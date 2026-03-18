@@ -271,7 +271,6 @@ async fn approve_plan(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(sprint_id): Path<Uuid>,
-    body: Option<Json<ApprovePlanRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
     if SprintStatus::from_str(&sprint.status) != SprintStatus::Planning {
@@ -280,14 +279,9 @@ async fn approve_plan(
         ));
     }
 
-    // max_parallel_tasks をリクエストから取得（デフォルト 3）
-    let max_parallel = body
-        .and_then(|b| b.max_parallel_tasks)
-        .unwrap_or(3);
-
     // executing に遷移（execution_plan は planning フェーズで既に設定済み）
     let plan = sprint.execution_plan.clone().unwrap_or_default();
-    let sprint = service::approve_plan(&state.pool, sprint_id, &plan, max_parallel).await?;
+    let sprint = service::approve_plan(&state.pool, sprint_id, &plan).await?;
 
     // バックグラウンドでスプリント実行
     let pool = state.pool.clone();
