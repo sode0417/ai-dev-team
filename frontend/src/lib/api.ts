@@ -113,6 +113,20 @@ export function cancelTask(id: string) {
   });
 }
 
+// Issue 単独実行
+export function executeIssue(body: {
+  project_id: string;
+  repository_id: string;
+  issue_number: number;
+  issue_url: string;
+  skip_hearing?: boolean;
+}) {
+  return request<{ data: import("@/types").Task }>("/api/tasks/execute-issue", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 // Hearings
 export function fetchHearings(taskId: string) {
   return request<{ data: import("@/types").TaskHearing[] }>(

@@ -58,6 +58,8 @@ pub struct Task {
     pub scan_id: Option<Uuid>,
     pub proposal_type: String,
     pub sprint_id: Option<Uuid>,
+    pub issue_number: Option<i32>,
+    pub issue_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -120,6 +122,15 @@ pub struct HearingQuestion {
     pub question: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecuteIssueRequest {
+    pub project_id: Uuid,
+    pub repository_id: Uuid,
+    pub issue_number: i32,
+    pub issue_url: String,
+    pub skip_hearing: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

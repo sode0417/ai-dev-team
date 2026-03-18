@@ -95,6 +95,19 @@ impl GitHubClient {
         req
     }
 
+    pub async fn fetch_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: i64,
+    ) -> Result<GitHubIssue, AppError> {
+        let url = format!(
+            "https://api.github.com/repos/{owner}/{repo}/issues/{number}"
+        );
+        let issue: GitHubIssue = self.request(&url).send().await?.error_for_status()?.json().await?;
+        Ok(issue)
+    }
+
     pub async fn fetch_issues(
         &self,
         owner: &str,
