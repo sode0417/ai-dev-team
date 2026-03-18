@@ -1,6 +1,20 @@
 import type { WsMessage, ScanWsMessage, SprintWsMessage } from "@/types";
 
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8100";
+function getWsBase(): string {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // devteam.sode-ai.com → devteam-api.sode-ai.com
+    const apiHost = window.location.hostname.replace(
+      /^([^.]+)\./,
+      "$1-api."
+    );
+    return `${protocol}//${apiHost}`;
+  }
+  return "ws://localhost:8100";
+}
+
+const WS_BASE = getWsBase();
 
 export function connectTaskWs(
   taskId: string,

@@ -53,6 +53,7 @@ pub struct Sprint {
     pub retrospective: Option<String>,
     pub improvement_suggestions: Option<Value>,
     pub user_feedback: Option<String>,
+    pub max_parallel_tasks: i32,
     pub error_log: Option<String>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
@@ -65,6 +66,12 @@ pub struct SprintWithTasks {
     #[serde(flatten)]
     pub sprint: Sprint,
     pub tasks: Vec<super::super::tasks::model::Task>,
+}
+
+/// 計画承認リクエスト
+#[derive(Debug, Deserialize)]
+pub struct ApprovePlanRequest {
+    pub max_parallel_tasks: Option<i32>,
 }
 
 /// ユーザーからの振り返りフィードバック

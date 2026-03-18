@@ -42,6 +42,7 @@ pub struct Task {
     pub priority: TaskPriority,
     pub depends_on: Option<Uuid>,
     pub execution_order: i32,
+    pub execution_group: i32,
     pub proposed_by: String,
     pub plan: Option<String>,
     pub pr_url: Option<String>,

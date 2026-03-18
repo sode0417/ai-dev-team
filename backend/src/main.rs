@@ -65,7 +65,7 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
 
     let recent_tasks: Vec<domains::tasks::model::Task> = sqlx::query_as(
         "SELECT id, project_id, repository_id, title, description, status, priority, \
-         depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
          retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
          scan_id, proposal_type, sprint_id \
          FROM tasks ORDER BY updated_at DESC LIMIT 10",

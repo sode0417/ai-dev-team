@@ -11,6 +11,7 @@ import {
   approveTask,
   executeTask,
   cancelTask,
+  API_BASE,
 } from "@/lib/api";
 import { connectTaskWs } from "@/lib/ws";
 import type { Task, ExecutionSession, ExecutionLog, WsMessage, TaskHearing } from "@/types";
@@ -22,7 +23,7 @@ import { Markdown } from "@/components/Markdown";
 
 /* ─── Phase definitions ─── */
 
-const PHASE_ORDER = ["hearing", "planning", "awaiting_approval", "executing", "reviewing", "completed", "failed"] as const;
+const PHASE_ORDER = ["hearing", "planning", "awaiting_approval", "executing", "reviewing", "qa", "completed", "failed"] as const;
 
 type PhaseName = (typeof PHASE_ORDER)[number];
 
@@ -32,6 +33,7 @@ const PHASE_META: Record<string, { icon: string; label: string; color: string }>
   awaiting_approval:  { icon: "✋", label: "承認待ち",     color: "gh-orange" },
   executing:          { icon: "⚡", label: "実行",         color: "gh-blue" },
   reviewing:          { icon: "🔍", label: "レビュー",     color: "gh-purple" },
+  qa:                 { icon: "🧪", label: "QA",           color: "gh-purple" },
   completed:          { icon: "✅", label: "完了",         color: "gh-green" },
   failed:             { icon: "❌", label: "失敗",         color: "gh-red" },
 };
@@ -263,6 +265,48 @@ export default function TaskDetailPage({
               <span className={`font-medium ${sessions[0].review_verdict === "APPROVE" ? "text-gh-green" : "text-gh-orange"}`}>
                 Verdict: {sessions[0].review_verdict}
               </span>
+            </div>
+          </PhaseCard>
+        )}
+
+        {/* QA Card */}
+        {sessions.length > 0 && sessions[0].qa_output && (
+          <PhaseCard
+            phase="qa"
+            currentPhase={currentPhase}
+            show={true}
+          >
+            <div className="space-y-3">
+              <div className="text-sm">
+                <span className={`font-medium ${sessions[0].qa_passed ? "text-gh-green" : "text-gh-orange"}`}>
+                  QA Verdict: {sessions[0].qa_passed ? "PASS" : "FAIL"}
+                </span>
+              </div>
+              {sessions[0].qa_screenshots && sessions[0].qa_screenshots.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs text-gh-text-muted font-medium">スクリーンショット</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {sessions[0].qa_screenshots.map((filename, i) => (
+                      <a
+                        key={i}
+                        href={`${API_BASE}/api/tasks/${task.id}/screenshots/${filename}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded border border-gh-border overflow-hidden hover:border-gh-blue/50 transition"
+                      >
+                        <img
+                          src={`${API_BASE}/api/tasks/${task.id}/screenshots/${filename}`}
+                          alt={filename}
+                          className="w-full h-auto"
+                        />
+                        <div className="px-2 py-1 text-[10px] text-gh-text-muted bg-gh-surface truncate">
+                          {filename}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </PhaseCard>
         )}

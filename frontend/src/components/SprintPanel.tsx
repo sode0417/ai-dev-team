@@ -58,7 +58,7 @@ export function SprintPanel({
       (msg) => {
         setWsMessages((prev) => [...prev, msg]);
         // フェーズ変更時にリロード
-        if (["completed", "plan_ready", "retrospective", "error"].includes(msg.phase)) {
+        if (["completed", "plan_ready", "retrospective", "error", "task_done", "generating_retro"].includes(msg.phase)) {
           loadSprint();
           onRefresh?.();
         }
@@ -424,7 +424,10 @@ function HearingPhase({
   loading: boolean;
   onPlan: () => void;
 }) {
-  const activeTasks = sprint.tasks.filter((t) => t.status !== "cancelled" && t.status !== "proposed");
+  // バックエンドの all_tasks_ready と一致: failed/completed タスクは readiness をブロックしない
+  const activeTasks = sprint.tasks.filter((t) =>
+    !["cancelled", "proposed", "completed", "failed"].includes(t.status)
+  );
   const readyTasks = activeTasks.filter((t) => t.status === "awaiting_approval");
   const allReady = readyTasks.length === activeTasks.length && activeTasks.length > 0;
 

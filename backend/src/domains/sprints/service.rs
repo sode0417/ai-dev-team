@@ -7,10 +7,10 @@ use crate::domains::tasks::model::{Task, TaskStatus};
 
 const SPRINT_COLS: &str = "id, project_id, status, scan_analysis, priority_actions, \
     execution_plan, retrospective, improvement_suggestions, user_feedback, \
-    error_log, created_at, started_at, completed_at";
+    max_parallel_tasks, error_log, created_at, started_at, completed_at";
 
 const TASK_COLS: &str = "id, project_id, repository_id, title, description, status, priority, \
-    depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+    depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
     retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
     scan_id, proposal_type, sprint_id";
 
@@ -201,15 +201,18 @@ pub async fn approve_plan(
     pool: &PgPool,
     sprint_id: Uuid,
     execution_plan: &str,
+    max_parallel_tasks: i32,
 ) -> Result<Sprint, AppError> {
     sqlx::query_as::<_, Sprint>(
         &format!(
-            "UPDATE sprints SET status = 'executing', execution_plan = $2, started_at = NOW() \
+            "UPDATE sprints SET status = 'executing', execution_plan = $2, \
+             max_parallel_tasks = $3, started_at = NOW() \
              WHERE id = $1 RETURNING {SPRINT_COLS}"
         ),
     )
     .bind(sprint_id)
     .bind(execution_plan)
+    .bind(max_parallel_tasks)
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
@@ -273,6 +276,28 @@ pub async fn fail_sprint(
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
+}
+
+/// スプリント内の全タスクが終了状態か確認
+/// (completed, failed, cancelled のみ)
+pub async fn all_tasks_terminal(pool: &PgPool, sprint_id: Uuid) -> Result<bool, AppError> {
+    let non_terminal: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tasks \
+         WHERE sprint_id = $1 \
+         AND status NOT IN ('completed', 'failed', 'cancelled')",
+    )
+    .bind(sprint_id)
+    .fetch_one(pool)
+    .await?;
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM tasks WHERE sprint_id = $1",
+    )
+    .bind(sprint_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(non_terminal == 0 && total > 0)
 }
 
 /// 前回のスプリント取得 (振り返り用)

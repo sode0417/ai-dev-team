@@ -543,6 +543,89 @@ async fn run_coder_to_pr(
         log(pool, session_id, "test", 1, "info", "Test スキップ (improvement タイプ)").await;
     }
 
+    // === QA (Playwright MCP, フロントエンド変更時のみ) ===
+    if !skip_test {
+        // git diff --name-only で変更ファイルを取得（commit 前なので staging + unstaged）
+        let changed_files = get_changed_file_list(wt_path).await;
+        if has_frontend_changes(&changed_files) {
+            broadcast(ws_hub, task_id, "executing", "QA Agent 起動中 (Playwright)...").await;
+            log(pool, session_id, "qa", 1, "info", "QA Agent 開始 — フロントエンド変更検出").await;
+
+            let screenshot_dir = format!("data/qa-screenshots/{task_id}");
+            // スクリーンショットディレクトリ作成
+            let _ = tokio::fs::create_dir_all(&screenshot_dir).await;
+
+            let mcp_config_path = std::env::current_dir()
+                .map(|p| p.join("config/playwright-mcp.json").to_string_lossy().to_string())
+                .unwrap_or_else(|_| "config/playwright-mcp.json".to_string());
+
+            let qa_prompt = format!(
+                "あなたは QA Agent です。Playwright MCP を使ってフロントエンドの動作確認を行ってください。\n\n\
+                ## タスク\n\
+                タイトル: {title}\n\
+                説明: {description}\n\n\
+                ## 変更ファイル\n\
+                {changed_files}\n\n\
+                ## 指示\n\
+                1. まず開発サーバーを起動してください: `PORT=3199 npm run dev` (frontend/ ディレクトリで)\n\
+                2. Playwright MCP の browser_navigate で http://localhost:3199 にアクセス\n\
+                3. 変更に関連するページを確認し、以下をテスト:\n\
+                   - ページが正しく表示されるか\n\
+                   - UI 要素が期待通りに動作するか\n\
+                   - エラーがコンソールに出ていないか\n\
+                4. 各確認ポイントで browser_take_screenshot でスクリーンショットを取得\n\
+                5. テスト完了後、開発サーバーを停止してください\n\
+                6. スクリーンショットファイルを `{screenshot_dir}/` にコピーしてください\n\
+                7. 最終行に必ず VERDICT: PASS または VERDICT: FAIL を出力\n\n\
+                ## 注意\n\
+                - dev server ポートは 3199 を使用（衝突回避）\n\
+                - スクリーンショットのファイル名は `01_toppage.png`, `02_detail.png` のように連番で"
+            );
+
+            for iteration in 1..=2 {
+                log(pool, session_id, "qa", iteration, "info", &format!("QA iteration {iteration}")).await;
+
+                let qa_result = match claude_cli::run_claude_with_mcp(&qa_prompt, wt_path, 600, &mcp_config_path).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!("QA Agent failed: {e}");
+                        log(pool, session_id, "qa", iteration, "warn", &format!("QA Agent エラー: {e}")).await;
+                        break;
+                    }
+                };
+
+                let verdict = parse_qa_verdict(&qa_result.stdout);
+                let passed = verdict == "PASS";
+                log(pool, session_id, "qa", iteration, "info", &format!("QA verdict: {verdict}")).await;
+
+                // スクリーンショット一覧を取得
+                let screenshots = collect_screenshots(&screenshot_dir).await;
+                let screenshots_json = serde_json::to_value(&screenshots).unwrap_or_default();
+
+                let _ = exec_service::update_session_with_qa(
+                    pool, session_id, "running",
+                    Some(&qa_result.stdout), Some(passed), Some(&screenshots_json),
+                ).await;
+
+                if passed || iteration == 2 {
+                    break;
+                }
+
+                // FAIL → Coder で修正
+                broadcast(ws_hub, task_id, "executing", &format!("QA 修正中 (iteration {iteration})...")).await;
+                let fix_prompt = format!(
+                    "QA テストが失敗しました。以下の QA 結果に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+                    qa_result.stdout
+                );
+                let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
+            }
+        } else {
+            log(pool, session_id, "qa", 1, "info", "QA スキップ — フロントエンド変更なし").await;
+        }
+    } else {
+        log(pool, session_id, "qa", 1, "info", "QA スキップ (improvement タイプ)").await;
+    }
+
     // === Commit & PR ===
     broadcast(ws_hub, task_id, "executing", "PR 作成中...").await;
 
@@ -578,6 +661,7 @@ async fn run_coder_to_pr(
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
+    check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
 /// 調査タスク: Claude で調査 → 結果を plan に保存 → 完了 (PR なし)
@@ -634,6 +718,7 @@ async fn run_investigation(
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
+    check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
 /// 操作タスク: Claude autonomous で gh コマンド等を実行 → 結果を plan に保存 → 完了 (PR なし)
@@ -690,6 +775,58 @@ async fn run_operation(
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
+    check_sprint_auto_transition(pool, ws_hub, task_id).await;
+}
+
+/// タスク完了/失敗時にスプリントの自動遷移をチェック
+/// スプリント内の全タスクが終了状態なら retrospective に遷移
+async fn check_sprint_auto_transition(pool: &PgPool, ws_hub: &WsHub, task_id: Uuid) {
+    // タスクの sprint_id を取得
+    let task = match task_service::get_task(pool, task_id).await {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    let sprint_id = match task.sprint_id {
+        Some(id) => id,
+        None => return,
+    };
+
+    // スプリントが executing 状態か確認（executing 以外のフェーズでは遷移しない）
+    let sprint = match crate::domains::sprints::service::get_sprint(pool, sprint_id).await {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    if sprint.status != "executing" {
+        return;
+    }
+
+    // 全タスクが終了状態か確認
+    let all_terminal = crate::domains::sprints::service::all_tasks_terminal(pool, sprint_id)
+        .await
+        .unwrap_or(false);
+
+    if !all_terminal {
+        return;
+    }
+
+    // run_sprint_execution が既に走っている場合はそちらに任せる
+    // ここでは run_sprint_execution を経由しない個別実行のケースをカバー
+    tracing::info!("Sprint {sprint_id}: all tasks terminal, auto-triggering retrospective");
+
+    let pool = pool.clone();
+    let ws_hub = ws_hub.clone();
+    tokio::spawn(async move {
+        let sprint_ws_msg = serde_json::json!({
+            "sprint_id": sprint_id.to_string(),
+            "phase": "generating_retro",
+            "message": "全タスク完了 — 振り返りを自動生成中...",
+        });
+        ws_hub.broadcast(sprint_id, &sprint_ws_msg.to_string()).await;
+
+        crate::scanner::analyzer::run_sprint_retrospective_only(&pool, &ws_hub, sprint_id).await;
+    });
 }
 
 async fn fail_pipeline(
@@ -711,6 +848,7 @@ async fn fail_pipeline(
     broadcast(ws_hub, task_id, "failed", error).await;
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
+    check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
 async fn broadcast(ws_hub: &WsHub, task_id: Uuid, phase: &str, message: &str) {
@@ -791,6 +929,72 @@ fn parse_questions(output: &str) -> Vec<HearingQuestion> {
     };
 
     serde_json::from_str::<Vec<HearingQuestion>>(json_str).unwrap_or_default()
+}
+
+fn parse_qa_verdict(output: &str) -> String {
+    for line in output.lines().rev() {
+        let line = line.trim().to_uppercase();
+        if line.contains("VERDICT:") {
+            if line.contains("PASS") {
+                return "PASS".to_string();
+            }
+            if line.contains("FAIL") {
+                return "FAIL".to_string();
+            }
+        }
+    }
+    "PASS".to_string() // デフォルトは PASS
+}
+
+/// フロントエンド関連の変更があるか判定
+fn has_frontend_changes(file_list: &str) -> bool {
+    file_list.lines().any(|line| {
+        let line = line.trim();
+        line.starts_with("frontend/")
+            || line.ends_with(".tsx")
+            || line.ends_with(".jsx")
+            || line.ends_with(".css")
+            || line.ends_with(".html")
+    })
+}
+
+/// git diff --name-only + git ls-files --others で変更ファイル一覧を取得
+async fn get_changed_file_list(worktree_path: &str) -> String {
+    let tracked = tokio::process::Command::new("git")
+        .args(["diff", "--name-only", "HEAD"])
+        .current_dir(worktree_path)
+        .output()
+        .await;
+
+    let untracked = tokio::process::Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(worktree_path)
+        .output()
+        .await;
+
+    let mut files = String::new();
+    if let Ok(o) = tracked {
+        files.push_str(&String::from_utf8_lossy(&o.stdout));
+    }
+    if let Ok(o) = untracked {
+        files.push_str(&String::from_utf8_lossy(&o.stdout));
+    }
+    files
+}
+
+/// スクリーンショットディレクトリからファイル名一覧を収集
+async fn collect_screenshots(dir: &str) -> Vec<String> {
+    let mut screenshots = Vec::new();
+    if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".png") || name.ends_with(".jpg") || name.ends_with(".jpeg") {
+                screenshots.push(name);
+            }
+        }
+    }
+    screenshots.sort();
+    screenshots
 }
 
 /// Planner 出力の「## 確認事項」セクションから追加質問を抽出

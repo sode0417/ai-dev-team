@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use sqlx::PgPool;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::domains::projects::model::ProjectRepository;
@@ -183,7 +185,7 @@ async fn run_sprint_planning_inner(
     }).collect();
 
     let prompt = format!(
-        r#"あなたは PM Agent です。以下のタスクの実行順序を決定してください。
+        r#"あなたは PM Agent です。以下のタスクの実行順序と並列実行グループを決定してください。
 
 ## タスク一覧
 {}
@@ -193,13 +195,21 @@ async fn run_sprint_planning_inner(
 
 1. **実行順序**: タスクの最適な実行順序とその理由
 2. **依存関係**: タスク間の依存関係（あれば）
-3. **リスク**: 注意すべきリスクや並行実行できないもの
-4. **見積もり**: 全体の実行時間の概算
+3. **並列実行グループ**: 同時実行可能なタスクのグループ分け
+4. **リスク**: 注意すべきリスクや並行実行できないもの
+5. **見積もり**: 全体の実行時間の概算
 
-タスク ID と実行順序の対応を以下の JSON も最後に含めてください:
+タスク ID と実行順序・並列グループの対応を以下の JSON も最後に含めてください:
 ```json
-[{{"task_id": "uuid", "order": 1}}, ...]
-```"#,
+[{{"task_id": "uuid", "order": 1, "execution_group": 0}}, ...]
+```
+
+### execution_group のルール:
+- 同じ `execution_group` 値のタスクは並列実行される
+- 小さいグループ番号から順に実行（group 0 → group 1 → ...）
+- **依存関係がないタスクは同じグループ**に配置（並列実行で時間短縮）
+- **依存先があるタスクは後のグループ**に配置
+- **同一ファイルを変更するタスクは別グループ**に配置（衝突回避）"#,
         tasks_info.join("\n\n")
     );
 
@@ -214,14 +224,15 @@ async fn run_sprint_planning_inner(
 
     let plan = result.stdout.clone();
 
-    // タスクの execution_order を更新
+    // タスクの execution_order と execution_group を更新
     if let Some(orders) = extract_task_orders(&result.stdout) {
-        for (task_id, order) in orders {
+        for (task_id, order, group) in orders {
             let _ = sqlx::query(
-                "UPDATE tasks SET execution_order = $2, updated_at = NOW() WHERE id = $1"
+                "UPDATE tasks SET execution_order = $2, execution_group = $3, updated_at = NOW() WHERE id = $1"
             )
             .bind(task_id)
             .bind(order)
+            .bind(group)
             .execute(pool)
             .await;
         }
@@ -258,73 +269,118 @@ async fn run_sprint_execution_inner(
     ws_hub: &WsHub,
     sprint_id: Uuid,
 ) -> Result<(), String> {
+    let sprint = sprint_service::get_sprint(pool, sprint_id)
+        .await
+        .map_err(|e| format!("Failed to get sprint: {e}"))?;
+
     let tasks = sprint_service::get_sprint_tasks(pool, sprint_id)
         .await
         .map_err(|e| format!("Failed to get tasks: {e}"))?;
 
-    let mut executable: Vec<_> = tasks.into_iter()
+    let executable: Vec<_> = tasks.into_iter()
         .filter(|t| t.status == TaskStatus::AwaitingApproval)
         .collect();
-    executable.sort_by_key(|t| t.execution_order);
 
     let total = executable.len();
 
-    for (i, task) in executable.iter().enumerate() {
-        broadcast_progress(
-            ws_hub, sprint_id, "executing",
-            &format!("タスク実行中 ({}/{total}): {}", i + 1, task.title),
-        ).await;
+    // execution_group でグループ化
+    let mut groups: BTreeMap<i32, Vec<_>> = BTreeMap::new();
+    for task in executable {
+        groups.entry(task.execution_group).or_default().push(task);
+    }
 
-        // リポジトリ情報取得
-        let repo_id = match task.repository_id {
-            Some(id) => id,
-            None => {
-                tracing::warn!("Task {} has no repository, skipping", task.id);
-                continue;
-            }
-        };
+    let max_parallel = sprint.max_parallel_tasks.max(1) as usize;
+    let semaphore = Arc::new(Semaphore::new(max_parallel));
+    let mut completed_count = 0usize;
 
-        let repo: Option<ProjectRepository> = sqlx::query_as(
-            "SELECT id, project_id, owner, name, default_branch, local_path, created_at \
-             FROM project_repositories WHERE id = $1",
-        )
-        .bind(repo_id)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("DB error: {e}"))?;
+    for (group_id, group_tasks) in &groups {
+        let group_size = group_tasks.len();
 
-        let local_path = match repo.and_then(|r| r.local_path) {
-            Some(p) => p,
-            None => {
-                tracing::warn!("Task {} repository has no local_path, skipping", task.id);
-                continue;
-            }
-        };
+        if group_size > 1 {
+            broadcast_progress(
+                ws_hub, sprint_id, "executing",
+                &format!("Group {group_id}: {group_size}タスク並列実行中 ({completed_count}/{total} 完了済み)"),
+            ).await;
+        } else {
+            broadcast_progress(
+                ws_hub, sprint_id, "executing",
+                &format!("タスク実行中 ({}/{total}): {}", completed_count + 1, group_tasks[0].title),
+            ).await;
+        }
 
-        // タスクの計画承認 → 実行
-        let _ = crate::domains::tasks::service::approve_plan(pool, task.id).await;
+        let mut handles = vec![];
 
-        // 実行フェーズ（同期的に完了を待つ）
-        crate::executor::pipeline::run_execution_phase(
-            pool, ws_hub, task.id, &task.title, &task.description,
-            &local_path, &task.proposal_type,
-        ).await;
+        for task in group_tasks {
+            // リポジトリ情報取得
+            let repo_id = match task.repository_id {
+                Some(id) => id,
+                None => {
+                    tracing::warn!("Task {} has no repository, skipping", task.id);
+                    continue;
+                }
+            };
 
-        // 実行結果を確認
-        let updated_task = crate::domains::tasks::service::get_task(pool, task.id)
+            let repo: Option<ProjectRepository> = sqlx::query_as(
+                "SELECT id, project_id, owner, name, default_branch, local_path, created_at \
+                 FROM project_repositories WHERE id = $1",
+            )
+            .bind(repo_id)
+            .fetch_optional(pool)
             .await
-            .map_err(|e| format!("Failed to get task: {e}"))?;
+            .map_err(|e| format!("DB error: {e}"))?;
 
-        let status_icon = match updated_task.status {
-            TaskStatus::Completed => "✅",
-            TaskStatus::Failed => "❌",
-            _ => "⏳",
-        };
+            let local_path = match repo.and_then(|r| r.local_path) {
+                Some(p) => p,
+                None => {
+                    tracing::warn!("Task {} repository has no local_path, skipping", task.id);
+                    continue;
+                }
+            };
 
-        broadcast_progress(
-            ws_hub, sprint_id, "task_done",
-            &format!("{status_icon} ({}/{total}) {} — {:?}", i + 1, task.title, updated_task.status),
-        ).await;
+            // タスクの計画承認
+            let _ = crate::domains::tasks::service::approve_plan(pool, task.id).await;
+
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let pool = pool.clone();
+            let ws_hub = ws_hub.clone();
+            let task_id = task.id;
+            let task_title = task.title.clone();
+            let task_description = task.description.clone();
+            let proposal_type = task.proposal_type.clone();
+
+            let handle = tokio::spawn(async move {
+                // 実行フェーズ（各タスクは独立 worktree で動作）
+                crate::executor::pipeline::run_execution_phase(
+                    &pool, &ws_hub, task_id, &task_title, &task_description,
+                    &local_path, &proposal_type,
+                ).await;
+                drop(permit);
+                task_id
+            });
+            handles.push((task.id, task.title.clone(), handle));
+        }
+
+        // グループ内全タスク完了を待機
+        for (task_id, task_title, handle) in handles {
+            let _ = handle.await;
+            completed_count += 1;
+
+            // 実行結果を確認
+            let updated_task = crate::domains::tasks::service::get_task(pool, task_id)
+                .await
+                .map_err(|e| format!("Failed to get task: {e}"))?;
+
+            let status_icon = match updated_task.status {
+                TaskStatus::Completed => "✅",
+                TaskStatus::Failed => "❌",
+                _ => "⏳",
+            };
+
+            broadcast_progress(
+                ws_hub, sprint_id, "task_done",
+                &format!("{status_icon} ({completed_count}/{total}) {task_title} — {:?}", updated_task.status),
+            ).await;
+        }
     }
 
     // 全タスク完了 → 振り返りフェーズ
@@ -335,6 +391,27 @@ async fn run_sprint_execution_inner(
     broadcast_progress(ws_hub, sprint_id, "retrospective", "スプリント完了。フィードバックをお願いします。").await;
 
     Ok(())
+}
+
+/// 個別タスク実行完了後の自動振り返り（スプリント実行フローを経由しないケース）
+pub async fn run_sprint_retrospective_only(pool: &PgPool, ws_hub: &WsHub, sprint_id: Uuid) {
+    let result = run_retrospective(pool, ws_hub, sprint_id).await;
+
+    match result {
+        Ok(()) => {
+            broadcast_progress(ws_hub, sprint_id, "retrospective", "スプリント完了。フィードバックをお願いします。").await;
+        }
+        Err(e) => {
+            tracing::error!("Auto-retrospective failed for sprint {sprint_id}: {e}");
+            // retrospective 生成に失敗しても、ステータスだけ retrospective に遷移
+            let _ = sprint_service::save_retrospective(
+                pool, sprint_id,
+                &format!("振り返り自動生成に失敗しました: {e}"),
+                None,
+            ).await;
+            broadcast_progress(ws_hub, sprint_id, "retrospective", "振り返り生成に失敗しましたが、フィードバックを入力できます。").await;
+        }
+    }
 }
 
 /// 振り返り生成
@@ -400,8 +477,8 @@ async fn run_retrospective(
     Ok(())
 }
 
-/// 実行順序 JSON を抽出
-fn extract_task_orders(output: &str) -> Option<Vec<(Uuid, i32)>> {
+/// 実行順序・並列グループ JSON を抽出
+fn extract_task_orders(output: &str) -> Option<Vec<(Uuid, i32, i32)>> {
     // ```json [...] ``` ブロックから抽出
     let json_str = if let Some(start) = output.rfind("[{") {
         let end = output[start..].find("]").map(|e| start + e + 1)?;
@@ -414,12 +491,14 @@ fn extract_task_orders(output: &str) -> Option<Vec<(Uuid, i32)>> {
     struct TaskOrder {
         task_id: String,
         order: i32,
+        #[serde(default)]
+        execution_group: i32,
     }
 
     let orders: Vec<TaskOrder> = serde_json::from_str(json_str).ok()?;
     let result: Vec<_> = orders.iter()
         .filter_map(|o| {
-            Uuid::parse_str(&o.task_id).ok().map(|id| (id, o.order))
+            Uuid::parse_str(&o.task_id).ok().map(|id| (id, o.order, o.execution_group))
         })
         .collect();
 

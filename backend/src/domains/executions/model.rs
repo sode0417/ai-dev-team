@@ -16,6 +16,9 @@ pub struct ExecutionSession {
     pub review_verdict: Option<String>,
     pub test_output: Option<String>,
     pub test_passed: Option<bool>,
+    pub qa_output: Option<String>,
+    pub qa_passed: Option<bool>,
+    pub qa_screenshots: Option<Value>,
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
 }

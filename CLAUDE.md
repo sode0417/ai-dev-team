@@ -89,11 +89,14 @@ psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260316000000_initial_
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317000000_scan_sessions.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317100000_hearing_flow.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317200000_sprints.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260318000000_qa_phase.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319000000_execution_groups.sql
 ```
 
 ## フェーズ
 
 - **Phase 1**: Web UI + 手動タスク作成 + claude -p 実行 ✅
-- **Phase 2 (現在)**: PM Agent スプリントサイクル + GitHub 連携
-- **Phase 3**: Claude Code Agent Teams 統合
-- **Phase 4**: ai-assistant (秘書) API 連携
+- **Phase 2**: PM Agent スプリントサイクル + GitHub 連携 ✅
+- **Phase 3**: execution_group による並列/直列実行制御 ✅
+- **Phase 4 (現在)**: Claude Code Agent Teams 統合
+- **Phase 5**: ai-assistant (秘書) API 連携

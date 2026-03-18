@@ -9,7 +9,7 @@ const SCAN_COLS: &str = "id, project_id, status, analysis, priority_actions, \
     retrospective, improvement_suggestions, error_log, started_at, completed_at";
 
 const TASK_COLS: &str = "id, project_id, repository_id, title, description, status, priority, \
-    depends_on, execution_order, proposed_by, plan, pr_url, changed_files, diff_stats, \
+    depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
     retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
     scan_id, proposal_type, sprint_id";
 

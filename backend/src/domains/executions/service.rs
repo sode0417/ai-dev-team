@@ -9,6 +9,7 @@ pub async fn list_sessions(pool: &PgPool, task_id: Uuid) -> Result<Vec<Execution
     Ok(sqlx::query_as::<_, ExecutionSession>(
         "SELECT id, task_id, attempt, status, worktree_path, branch_name, \
          plan_output, review_output, review_verdict, test_output, test_passed, \
+         qa_output, qa_passed, qa_screenshots, \
          started_at, completed_at \
          FROM execution_sessions WHERE task_id = $1 ORDER BY attempt DESC",
     )
@@ -35,6 +36,7 @@ pub async fn create_session(
          VALUES ($1, $2, $3, $4) \
          RETURNING id, task_id, attempt, status, worktree_path, branch_name, \
          plan_output, review_output, review_verdict, test_output, test_passed, \
+         qa_output, qa_passed, qa_screenshots, \
          started_at, completed_at",
     )
     .bind(task_id)
@@ -55,6 +57,33 @@ pub async fn update_session(
     test_output: Option<&str>,
     test_passed: Option<bool>,
 ) -> Result<ExecutionSession, AppError> {
+    update_session_full(pool, session_id, status, plan_output, review_output, review_verdict, test_output, test_passed, None, None, None).await
+}
+
+pub async fn update_session_with_qa(
+    pool: &PgPool,
+    session_id: Uuid,
+    status: &str,
+    qa_output: Option<&str>,
+    qa_passed: Option<bool>,
+    qa_screenshots: Option<&Value>,
+) -> Result<ExecutionSession, AppError> {
+    update_session_full(pool, session_id, status, None, None, None, None, None, qa_output, qa_passed, qa_screenshots).await
+}
+
+async fn update_session_full(
+    pool: &PgPool,
+    session_id: Uuid,
+    status: &str,
+    plan_output: Option<&str>,
+    review_output: Option<&str>,
+    review_verdict: Option<&str>,
+    test_output: Option<&str>,
+    test_passed: Option<bool>,
+    qa_output: Option<&str>,
+    qa_passed: Option<bool>,
+    qa_screenshots: Option<&Value>,
+) -> Result<ExecutionSession, AppError> {
     let completed_at = if status == "completed" || status == "failed" {
         Some(chrono::Utc::now())
     } else {
@@ -69,10 +98,14 @@ pub async fn update_session(
             review_verdict = COALESCE($5, review_verdict),
             test_output = COALESCE($6, test_output),
             test_passed = COALESCE($7, test_passed),
-            completed_at = COALESCE($8, completed_at)
+            completed_at = COALESCE($8, completed_at),
+            qa_output = COALESCE($9, qa_output),
+            qa_passed = COALESCE($10, qa_passed),
+            qa_screenshots = COALESCE($11, qa_screenshots)
         WHERE id = $1
         RETURNING id, task_id, attempt, status, worktree_path, branch_name,
         plan_output, review_output, review_verdict, test_output, test_passed,
+        qa_output, qa_passed, qa_screenshots,
         started_at, completed_at"#,
     )
     .bind(session_id)
@@ -83,6 +116,9 @@ pub async fn update_session(
     .bind(test_output)
     .bind(test_passed)
     .bind(completed_at)
+    .bind(qa_output)
+    .bind(qa_passed)
+    .bind(qa_screenshots)
     .fetch_one(pool)
     .await?)
 }

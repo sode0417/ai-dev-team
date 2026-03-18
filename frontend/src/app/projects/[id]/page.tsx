@@ -58,7 +58,7 @@ export default function ProjectDetailPage({
       .catch(() => {});
     fetchActiveSprint(id)
       .then((res) => {
-        if (res.data) setActiveSprintId(res.data.id);
+        setActiveSprintId(res.data ? res.data.id : null);
       })
       .catch(() => {});
   }, [id]);

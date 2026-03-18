@@ -43,6 +43,7 @@ export interface Task {
   priority: TaskPriority;
   depends_on: string | null;
   execution_order: number;
+  execution_group: number;
   proposed_by: string;
   plan: string | null;
   pr_url: string | null;
@@ -72,6 +73,9 @@ export interface ExecutionSession {
   review_verdict: string | null;
   test_output: string | null;
   test_passed: boolean | null;
+  qa_output: string | null;
+  qa_passed: boolean | null;
+  qa_screenshots: string[] | null;
   started_at: string;
   completed_at: string | null;
 }
@@ -150,6 +154,7 @@ export interface Sprint {
   retrospective: string | null;
   improvement_suggestions: ImprovementSuggestion[] | null;
   user_feedback: string | null;
+  max_parallel_tasks: number;
   error_log: string | null;
   created_at: string;
   started_at: string | null;
@@ -164,6 +169,11 @@ export interface SprintWsMessage {
   sprint_id: string;
   phase: string;
   message: string;
+  parallel_tasks?: {
+    task_id: string;
+    title: string;
+    status: TaskStatus;
+  }[];
 }
 
 export interface HearingQuestion {
