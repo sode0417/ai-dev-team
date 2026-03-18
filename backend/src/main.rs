@@ -10,7 +10,7 @@ mod scanner;
 mod ws;
 
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Path, State, WebSocketUpgrade};
+use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::{Json, Router};
 use config::Config;
@@ -85,12 +85,27 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
     })))
 }
 
+#[derive(serde::Deserialize)]
+struct WsQuery {
+    token: Option<String>,
+}
+
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws(socket, state, id))
+    Query(query): Query<WsQuery>,
+) -> Result<impl IntoResponse, error::AppError> {
+    // WebSocket 接続時に JWT を検証（認証有効時のみ）
+    // NOTE: トークンを URL パラメータで送信するため、サーバーログにトークンが記録されないよう注意
+    if state.config.auth_enabled {
+        let token = query
+            .token
+            .ok_or_else(|| error::AppError::Unauthorized("Missing token parameter".to_string()))?;
+        auth::decode_token(&token, &state.config.jwt_secret)?;
+    }
+
+    Ok(ws.on_upgrade(move |socket| handle_ws(socket, state, id)))
 }
 
 async fn handle_ws(mut socket: WebSocket, state: AppState, id: Uuid) {
@@ -158,8 +173,35 @@ async fn main() {
         github,
     };
 
+    // 期限切れリフレッシュトークンの定期クリーンアップ（1時間ごと）
+    if config.auth_enabled {
+        let cleanup_pool = state.pool.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                match sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < NOW()")
+                    .execute(&cleanup_pool)
+                    .await
+                {
+                    Ok(result) => {
+                        let count = result.rows_affected();
+                        if count > 0 {
+                            tracing::info!("Cleaned up {count} expired refresh tokens");
+                        }
+                    }
+                    Err(e) => tracing::warn!("Failed to cleanup expired refresh tokens: {e}"),
+                }
+            }
+        });
+    }
+
     let app = Router::new()
+        // 認証不要ルート
         .route("/api/health", axum::routing::get(health_check))
+        .nest("/api/auth", domains::auth::handler::public_routes())
+        // 認証必要ルート
+        .nest("/api/auth", domains::auth::handler::protected_routes())
         .route("/api/dashboard", axum::routing::get(dashboard))
         .nest("/api/projects", domains::projects::handler::routes())
         .merge(Router::new().nest("/api/projects", domains::scans::handler::project_routes()))
@@ -172,6 +214,7 @@ async fn main() {
                 .nest("/api/tasks", domains::executions::handler::task_routes())
                 .nest("/api/executions", domains::executions::handler::execution_routes()),
         )
+        // WebSocket（認証はハンドラ内で処理）
         .route("/ws/executions/{task_id}", axum::routing::get(ws_handler))
         .route("/ws/scans/{scan_id}", axum::routing::get(ws_handler))
         .route("/ws/sprints/{sprint_id}", axum::routing::get(ws_handler))

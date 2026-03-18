@@ -74,6 +74,8 @@ frontend/
 
 - `DATABASE_URL` — PostgreSQL 接続文字列 (`postgres://ai_dev_team:...@localhost/ai_dev_team`)
 - `PORT` — Backend ポート (デフォルト: 8100)
+- `AUTH_ENABLED` — 認証有効化 (`true`/`false`, デフォルト: `false`)
+- `JWT_SECRET` — JWT 署名鍵（AUTH_ENABLED=true 時は必須）
 
 ## 開発
 
@@ -91,6 +93,12 @@ psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317100000_hearing_
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317200000_sprints.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260318000000_qa_phase.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319000000_execution_groups.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319100000_users.sql
+
+# 認証セットアップ（任意）
+# 1. .env に AUTH_ENABLED=true と JWT_SECRET を設定
+# 2. 初期ユーザー作成:
+cargo run --bin seed_user -- <username> <password>
 ```
 
 ## フェーズ

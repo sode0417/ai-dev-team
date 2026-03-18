@@ -237,3 +237,20 @@ export interface GitHubPullRequest {
   head: { ref: string };
   base: { ref: string };
 }
+
+// Auth
+export interface AuthResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface User {
+  id: string;
+  username: string;
+}

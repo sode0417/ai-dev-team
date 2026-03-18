@@ -1,26 +1,39 @@
-function getApiBase(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
-    // devteam.sode-ai.com → devteam-api.sode-ai.com
-    const apiHost = window.location.hostname.replace(
-      /^([^.]+)\./,
-      "$1-api."
-    );
-    return `${window.location.protocol}//${apiHost}`;
-  }
-  return "http://localhost:8100";
-}
+export { API_BASE } from "./config";
 
-export const API_BASE = getApiBase();
+import { API_BASE } from "./config";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
+  const { getAccessToken, refreshAccessToken, clearTokens } = await import("./auth");
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string>),
+  };
+
+  const token = getAccessToken();
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  let res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  // 401 の場合、リフレッシュしてリトライ
+  if (res.status === 401 && token) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      const newToken = getAccessToken();
+      if (newToken) {
+        headers["Authorization"] = `Bearer ${newToken}`;
+      }
+      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    } else {
+      clearTokens();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+      throw new Error("Session expired");
+    }
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
