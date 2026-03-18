@@ -60,6 +60,7 @@ pub struct Task {
     pub sprint_id: Option<Uuid>,
     pub issue_number: Option<i32>,
     pub issue_url: Option<String>,
+    pub revision_count: i32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,4 +138,9 @@ pub struct ExecuteIssueRequest {
 pub struct RejectPlanRequest {
     pub action: String,       // "replan" | "cancel"
     pub feedback: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RequestRevisionRequest {
+    pub instructions: String,
 }

@@ -62,6 +62,7 @@ export interface Task {
   issue_number: number | null;
   issue_url: string | null;
   execution_group: number | null;
+  revision_count: number;
 }
 
 export interface ExecutionSession {
@@ -79,6 +80,7 @@ export interface ExecutionSession {
   qa_output: string | null;
   qa_passed: boolean | null;
   qa_screenshots: string[] | null;
+  revision_instructions: string | null;
   started_at: string;
   completed_at: string | null;
 }

@@ -391,6 +391,33 @@ async fn execute_issue(
     Ok(Json(json!({ "data": task })))
 }
 
+async fn request_revision(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<RequestRevisionRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // ステータスとPR存在チェックは service 側で実施
+    let task = service::request_revision(&state.pool, id).await?;
+
+    // バックグラウンドで修正パイプラインを実行
+    let pool = state.pool.clone();
+    let ws_hub = state.ws_hub.clone();
+    let task_id = task.id;
+    let task_title = task.title.clone();
+    let task_description = task.description.clone();
+    let instructions = body.instructions.clone();
+
+    tokio::spawn(async move {
+        crate::executor::pipeline::run_revision_phase(
+            &pool, &ws_hub, task_id, &task_title, &task_description, &instructions,
+        ).await;
+    });
+
+    let task = service::get_task(&state.pool, id).await?;
+    Ok(Json(json!({ "data": task })))
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
@@ -403,4 +430,5 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/hearing/answer", post(answer_hearing))
         .route("/{id}/approve-plan", post(approve_plan))
         .route("/{id}/reject-plan", post(reject_plan))
+        .route("/{id}/request-revision", post(request_revision))
 }
