@@ -9,7 +9,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
     let mut sql = String::from(
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url \
          FROM tasks WHERE 1=1",
     );
     let mut binds: Vec<String> = vec![];
@@ -31,7 +31,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url \
                  FROM tasks WHERE project_id = $1 AND status::text = $2 \
                  ORDER BY execution_order, created_at DESC",
             )
@@ -44,7 +44,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url \
                  FROM tasks WHERE project_id = $1 \
                  ORDER BY execution_order, created_at DESC",
             )
@@ -56,7 +56,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url \
                  FROM tasks WHERE status::text = $1 \
                  ORDER BY execution_order, created_at DESC",
             )
@@ -68,7 +68,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url \
                  FROM tasks ORDER BY execution_order, created_at DESC",
             )
             .fetch_all(pool)
@@ -81,7 +81,7 @@ pub async fn get_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
     sqlx::query_as::<_, Task>(
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url \
          FROM tasks WHERE id = $1",
     )
     .bind(id)
@@ -107,13 +107,40 @@ pub async fn create_task(pool: &PgPool, req: &CreateTaskRequest) -> Result<Task,
          VALUES ($1, $2, $3, $4, $5) \
          RETURNING id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id",
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url",
     )
     .bind(req.project_id)
     .bind(req.repository_id)
     .bind(&req.title)
     .bind(&req.description)
     .bind(&priority)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+pub async fn create_task_from_issue(
+    pool: &PgPool,
+    project_id: Uuid,
+    repository_id: Uuid,
+    issue_number: i32,
+    issue_url: &str,
+    title: &str,
+    description: &str,
+) -> Result<Task, AppError> {
+    sqlx::query_as::<_, Task>(
+        "INSERT INTO tasks (project_id, repository_id, title, description, issue_number, issue_url, proposal_type) \
+         VALUES ($1, $2, $3, $4, $5, $6, 'development') \
+         RETURNING id, project_id, repository_id, title, description, status, priority, \
+         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url",
+    )
+    .bind(project_id)
+    .bind(repository_id)
+    .bind(title)
+    .bind(description)
+    .bind(issue_number)
+    .bind(issue_url)
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
@@ -129,7 +156,7 @@ pub async fn update_task(pool: &PgPool, id: Uuid, req: &UpdateTaskRequest) -> Re
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url"#,
     )
     .bind(id)
     .bind(&req.title)
@@ -154,7 +181,7 @@ pub async fn approve_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url"#,
     )
     .bind(id)
     .fetch_one(pool)
@@ -173,7 +200,7 @@ pub async fn cancel_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url"#,
     )
     .bind(id)
     .fetch_one(pool)
@@ -218,7 +245,7 @@ pub async fn update_task_execution(
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url"#,
     )
     .bind(id)
     .bind(&status)
@@ -312,7 +339,7 @@ pub async fn approve_plan(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url"#,
     )
     .bind(id)
     .fetch_one(pool)
@@ -337,7 +364,7 @@ pub async fn reject_plan(pool: &PgPool, id: Uuid, action: &str) -> Result<Task, 
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url"#,
     )
     .bind(id)
     .bind(new_status)

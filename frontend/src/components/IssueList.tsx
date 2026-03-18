@@ -7,9 +7,11 @@ import type { GitHubIssue } from "@/types";
 export function IssueList({
   projectId,
   repoId,
+  onExecute,
 }: {
   projectId: string;
   repoId: string;
+  onExecute?: (issue: GitHubIssue) => void;
 }) {
   const [issues, setIssues] = useState<GitHubIssue[]>([]);
   const [state, setState] = useState<"open" | "closed">("open");
@@ -71,11 +73,8 @@ export function IssueList({
       ) : (
         <div>
           {issues.map((issue, i) => (
-            <a
+            <div
               key={issue.number}
-              href={issue.html_url}
-              target="_blank"
-              rel="noopener noreferrer"
               className={`flex items-start gap-2.5 px-2 py-2.5 hover:bg-gh-overlay rounded-md transition ${
                 i > 0 ? "border-t border-gh-border-muted" : ""
               }`}
@@ -90,9 +89,14 @@ export function IssueList({
               </svg>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-sm font-medium text-gh-text hover:text-gh-link">
+                  <a
+                    href={issue.html_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-gh-text hover:text-gh-link"
+                  >
                     {issue.title}
-                  </span>
+                  </a>
                   {issue.labels.map((label) => (
                     <span
                       key={label.name}
@@ -119,7 +123,16 @@ export function IssueList({
                   )}
                 </div>
               </div>
-            </a>
+              {onExecute && state === "open" && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onExecute(issue); }}
+                  className="shrink-0 px-2 py-1 text-xs font-medium rounded-md bg-gh-blue/15 text-gh-blue hover:bg-gh-blue/25 transition"
+                  title={`Issue #${issue.number} \u3092\u5b9f\u884c`}
+                >
+                  Execute
+                </button>
+              )}
+            </div>
           ))}
           {hasMore && (
             <button

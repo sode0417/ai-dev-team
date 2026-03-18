@@ -59,6 +59,8 @@ export interface Task {
   scan_id: string | null;
   proposal_type: string;
   sprint_id: string | null;
+  issue_number: number | null;
+  issue_url: string | null;
 }
 
 export interface ExecutionSession {

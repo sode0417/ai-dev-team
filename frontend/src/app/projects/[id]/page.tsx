@@ -15,8 +15,9 @@ import {
   approveTask,
   executeTask,
   cancelTask,
+  executeIssue,
 } from "@/lib/api";
-import type { Project, ProjectRepository, Task, Sprint } from "@/types";
+import type { Project, ProjectRepository, Task, Sprint, GitHubIssue } from "@/types";
 import { StatusBadge } from "@/components/StatusBadge";
 import { PriorityBadge } from "@/components/PriorityBadge";
 import { IssueList } from "@/components/IssueList";
@@ -171,6 +172,20 @@ export default function ProjectDetailPage({
           onSetRepoTab={setRepoTab}
           onToggleRepoForm={() => setShowRepoForm(!showRepoForm)}
           onRepoAdded={() => { setShowRepoForm(false); load(); }}
+          onExecuteIssue={async (repoId, issue) => {
+            try {
+              await executeIssue({
+                project_id: id,
+                repository_id: repoId,
+                issue_number: issue.number,
+                issue_url: issue.html_url,
+              });
+              loadTasks();
+              setActiveTab("tasks");
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Issue execution failed");
+            }
+          }}
         />
       )}
 
@@ -309,6 +324,7 @@ function RepositoriesTab({
   onSetRepoTab,
   onToggleRepoForm,
   onRepoAdded,
+  onExecuteIssue,
 }: {
   projectId: string;
   repositories: ProjectRepository[];
@@ -321,6 +337,7 @@ function RepositoriesTab({
   onSetRepoTab: (tab: "issues" | "pulls") => void;
   onToggleRepoForm: () => void;
   onRepoAdded: () => void;
+  onExecuteIssue?: (repoId: string, issue: GitHubIssue) => void;
 }) {
   return (
     <div>
@@ -394,7 +411,11 @@ function RepositoriesTab({
               </div>
               <div className="border-t border-gh-border px-4 pb-3">
                 {repoTab === "issues" ? (
-                  <IssueList projectId={projectId} repoId={selectedRepo.id} />
+                  <IssueList
+                    projectId={projectId}
+                    repoId={selectedRepo.id}
+                    onExecute={onExecuteIssue ? (issue) => onExecuteIssue(selectedRepo.id, issue) : undefined}
+                  />
                 ) : (
                   <PullRequestList projectId={projectId} repoId={selectedRepo.id} />
                 )}

@@ -316,9 +316,85 @@ async fn reject_plan(
     Ok(Json(json!({ "data": task })))
 }
 
+async fn execute_issue(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Json(body): Json<ExecuteIssueRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let skip_hearing = body.skip_hearing.unwrap_or(false);
+
+    // リポジトリ情報を取得
+    let repo: crate::domains::projects::model::ProjectRepository = sqlx::query_as::<_, crate::domains::projects::model::ProjectRepository>(
+        "SELECT id, project_id, owner, name, default_branch, local_path, created_at \
+         FROM project_repositories WHERE id = $1",
+    )
+    .bind(body.repository_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let local_path = repo.local_path.ok_or_else(|| {
+        AppError::Validation("Repository must have a local_path configured".to_string())
+    })?;
+
+    // GitHub API で Issue 詳細取得
+    let issue = state.github.fetch_issue(&repo.owner, &repo.name, body.issue_number as i64).await?;
+
+    // Issue からタスクを作成
+    let description = format!(
+        "GitHub Issue #{}: {}\n\n{}",
+        issue.number,
+        issue.title,
+        issue.body.unwrap_or_default()
+    );
+    let task = service::create_task_from_issue(
+        &state.pool,
+        body.project_id,
+        body.repository_id,
+        body.issue_number,
+        &body.issue_url,
+        &issue.title,
+        &description,
+    ).await?;
+
+    let task_id = task.id;
+    let task_title = task.title.clone();
+    let task_description = task.description.clone();
+    let branch = repo.default_branch.clone();
+    let proposal_type = task.proposal_type.clone();
+    let pool = state.pool.clone();
+    let ws_hub = state.ws_hub.clone();
+
+    if skip_hearing {
+        let _ = service::update_task_execution(
+            &state.pool, task_id, super::model::TaskStatus::Planning, None, None, None, None, None,
+        ).await?;
+
+        tokio::spawn(async move {
+            crate::executor::pipeline::run_pipeline(
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &branch, &proposal_type,
+            ).await;
+        });
+    } else {
+        let _ = service::update_task_execution(
+            &state.pool, task_id, super::model::TaskStatus::Hearing, None, None, None, None, None,
+        ).await?;
+
+        tokio::spawn(async move {
+            crate::executor::pipeline::run_hearing_phase(
+                &pool, &ws_hub, task_id, &task_title, &task_description, &local_path, &branch, &proposal_type,
+            ).await;
+        });
+    }
+
+    let task = service::get_task(&state.pool, task_id).await?;
+    Ok(Json(json!({ "data": task })))
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_tasks).post(create_task))
+        .route("/execute-issue", post(execute_issue))
         .route("/{id}", get(get_task).put(update_task))
         .route("/{id}/approve", post(approve_task))
         .route("/{id}/execute", post(execute_task))
