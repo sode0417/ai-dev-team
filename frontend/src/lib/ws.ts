@@ -1,4 +1,5 @@
 import type { WsMessage, ScanWsMessage, SprintWsMessage } from "@/types";
+import { getAccessToken } from "./auth";
 
 function getWsBase(): string {
   if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
@@ -16,12 +17,18 @@ function getWsBase(): string {
 
 const WS_BASE = getWsBase();
 
+function buildWsUrl(path: string): string {
+  const token = getAccessToken();
+  const url = `${WS_BASE}${path}`;
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url;
+}
+
 export function connectTaskWs(
   taskId: string,
   onMessage: (msg: WsMessage) => void,
   onClose?: () => void
 ): WebSocket {
-  const ws = new WebSocket(`${WS_BASE}/ws/executions/${taskId}`);
+  const ws = new WebSocket(buildWsUrl(`/ws/executions/${taskId}`));
 
   ws.onmessage = (event) => {
     try {
@@ -44,7 +51,7 @@ export function connectScanWs(
   onMessage: (msg: ScanWsMessage) => void,
   onClose?: () => void
 ): WebSocket {
-  const ws = new WebSocket(`${WS_BASE}/ws/scans/${scanId}`);
+  const ws = new WebSocket(buildWsUrl(`/ws/scans/${scanId}`));
 
   ws.onmessage = (event) => {
     try {
@@ -67,7 +74,7 @@ export function connectSprintWs(
   onMessage: (msg: SprintWsMessage) => void,
   onClose?: () => void
 ): WebSocket {
-  const ws = new WebSocket(`${WS_BASE}/ws/sprints/${sprintId}`);
+  const ws = new WebSocket(buildWsUrl(`/ws/sprints/${sprintId}`));
 
   ws.onmessage = (event) => {
     try {

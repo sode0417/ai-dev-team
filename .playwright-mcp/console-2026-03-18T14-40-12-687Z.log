@@ -1,0 +1,1 @@
+[   16271ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8100/api/auth/login:0

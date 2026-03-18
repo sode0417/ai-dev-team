@@ -15,6 +15,9 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
 }
 
 impl AppError {
@@ -24,6 +27,7 @@ impl AppError {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
         }
     }
 
@@ -33,6 +37,7 @@ impl AppError {
             Self::NotFound => "NOT_FOUND",
             Self::Conflict(_) => "CONFLICT",
             Self::Internal(_) => "INTERNAL_ERROR",
+            Self::Unauthorized(_) => "UNAUTHORIZED",
         }
     }
 }

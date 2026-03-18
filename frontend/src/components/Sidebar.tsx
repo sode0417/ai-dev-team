@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { fetchProjects } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 import type { Project } from "@/types";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [open, setOpen] = useState(false);
 
@@ -80,6 +82,24 @@ export function Sidebar() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* ユーザー & ログアウト */}
+      <div className="px-3 py-3 border-t border-gh-border">
+        <div className="flex items-center justify-between px-3">
+          <span className="text-xs text-gh-text-muted truncate">
+            {user?.username}
+          </span>
+          <button
+            onClick={logout}
+            className="text-xs text-gh-text-muted hover:text-gh-text transition"
+            title="Sign out"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
+            </svg>
+          </button>
+        </div>
       </div>
     </>
   );
