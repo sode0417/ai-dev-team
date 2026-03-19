@@ -1,5 +1,6 @@
 use axum::extract::{Path, State};
 use axum::{Json, Router, routing::{get, post}};
+use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -9,6 +10,11 @@ use crate::error::AppError;
 use crate::response::SuccessResponse;
 use super::model::*;
 use super::service;
+
+#[derive(Debug, Deserialize)]
+struct ApprovePlanRequest {
+    max_parallel_tasks: Option<i32>,
+}
 
 /// POST /api/projects/{id}/sprints — スプリント作成 + スキャン開始
 async fn create_sprint(
@@ -239,21 +245,30 @@ async fn create_plan(
     Path(sprint_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
-    if SprintStatus::from_str(&sprint.status) != SprintStatus::Hearing {
+    let status = SprintStatus::from_str(&sprint.status);
+
+    // hearing → planning 初回、planning → planning リトライ（計画未生成時）
+    if status == SprintStatus::Hearing {
+        let all_ready = service::all_tasks_ready(&state.pool, sprint_id).await?;
+        if !all_ready {
+            return Err(AppError::Validation(
+                "Not all tasks have completed hearing".to_string(),
+            ));
+        }
+        // planning に遷移
+        service::update_status(&state.pool, sprint_id, "planning").await?;
+    } else if status == SprintStatus::Planning {
+        // planning リトライ: execution_plan が未生成の場合のみ許可
+        if sprint.execution_plan.is_some() {
+            return Err(AppError::Validation(
+                "Plan already exists. Use approve-plan to proceed.".to_string(),
+            ));
+        }
+    } else {
         return Err(AppError::Validation(
-            "Sprint must be in 'hearing' status to plan".to_string(),
+            "Sprint must be in 'hearing' or 'planning' status to plan".to_string(),
         ));
     }
-
-    let all_ready = service::all_tasks_ready(&state.pool, sprint_id).await?;
-    if !all_ready {
-        return Err(AppError::Validation(
-            "Not all tasks have completed hearing".to_string(),
-        ));
-    }
-
-    // planning に遷移
-    let sprint = service::update_status(&state.pool, sprint_id, "planning").await?;
 
     // バックグラウンドで実行計画を作成
     let pool = state.pool.clone();
@@ -271,7 +286,6 @@ async fn approve_plan(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(sprint_id): Path<Uuid>,
-    body: Option<Json<ApprovePlanRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
     if SprintStatus::from_str(&sprint.status) != SprintStatus::Planning {
@@ -280,14 +294,9 @@ async fn approve_plan(
         ));
     }
 
-    // max_parallel_tasks をリクエストから取得（デフォルト 3）
-    let max_parallel = body
-        .and_then(|b| b.max_parallel_tasks)
-        .unwrap_or(3);
-
     // executing に遷移（execution_plan は planning フェーズで既に設定済み）
     let plan = sprint.execution_plan.clone().unwrap_or_default();
-    let sprint = service::approve_plan(&state.pool, sprint_id, &plan, max_parallel).await?;
+    let sprint = service::approve_plan(&state.pool, sprint_id, &plan).await?;
 
     // バックグラウンドでスプリント実行
     let pool = state.pool.clone();
@@ -344,7 +353,7 @@ async fn cancel_sprint(
     Ok(Json(json!({ "data": sprint })))
 }
 
-/// POST /api/sprints/{id}/feedback — ユーザーフィードバック → スプリント完了
+/// POST /api/sprints/{id}/feedback — ユーザーフィードバック → improving or completed
 async fn submit_feedback(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -358,7 +367,39 @@ async fn submit_feedback(
         ));
     }
 
-    let sprint = service::complete_with_feedback(&state.pool, sprint_id, &body.feedback).await?;
+    let sprint = service::start_improving(&state.pool, sprint_id, &body.feedback).await?;
+
+    // improving に遷移した場合、バックグラウンドで改善フェーズを実行
+    if SprintStatus::from_str(&sprint.status) == SprintStatus::Improving {
+        let pool = state.pool.clone();
+        let ws_hub = state.ws_hub.clone();
+        let github = state.github.clone();
+        let sid = sprint_id;
+
+        tokio::spawn(async move {
+            crate::scanner::analyzer::run_improving_phase(&pool, &ws_hub, &github, sid).await;
+        });
+        // Note: run_improving_phase handles all errors internally (saves to DB + broadcasts).
+        // Panics are logged by tokio's default panic hook.
+    }
+
+    Ok(Json(json!({ "data": sprint })))
+}
+
+/// POST /api/sprints/{id}/complete — improving フェーズ完了後にスプリント完了
+async fn complete_sprint(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(sprint_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let sprint = service::get_sprint(&state.pool, sprint_id).await?;
+    if SprintStatus::from_str(&sprint.status) != SprintStatus::Improving {
+        return Err(AppError::Validation(
+            "Sprint must be in 'improving' status to complete".to_string(),
+        ));
+    }
+
+    let sprint = service::complete_after_improving(&state.pool, sprint_id).await?;
 
     Ok(Json(json!({ "data": sprint })))
 }
@@ -381,4 +422,5 @@ pub fn sprint_routes() -> Router<AppState> {
         .route("/{id}/approve-plan", post(approve_plan))
         .route("/{id}/cancel", post(cancel_sprint))
         .route("/{id}/feedback", post(submit_feedback))
+        .route("/{id}/complete", post(complete_sprint))
 }

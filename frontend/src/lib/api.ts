@@ -140,6 +140,14 @@ export function executeIssue(body: {
   });
 }
 
+// Revision
+export function requestRevision(taskId: string, instructions: string) {
+  return request<{ data: import("@/types").Task }>(
+    `/api/tasks/${taskId}/request-revision`,
+    { method: "POST", body: JSON.stringify({ instructions }) }
+  );
+}
+
 // Hearings
 export function fetchHearings(taskId: string) {
   return request<{ data: import("@/types").TaskHearing[] }>(
@@ -273,6 +281,13 @@ export function submitSprintFeedback(sprintId: string, feedback: string) {
   return request<{ data: import("@/types").Sprint }>(
     `/api/sprints/${sprintId}/feedback`,
     { method: "POST", body: JSON.stringify({ feedback }) }
+  );
+}
+
+export function completeSprint(sprintId: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/complete`,
+    { method: "POST" }
   );
 }
 

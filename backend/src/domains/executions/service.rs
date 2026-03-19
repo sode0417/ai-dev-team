@@ -10,7 +10,7 @@ pub async fn list_sessions(pool: &PgPool, task_id: Uuid) -> Result<Vec<Execution
         "SELECT id, task_id, attempt, status, worktree_path, branch_name, \
          plan_output, review_output, review_verdict, test_output, test_passed, \
          qa_output, qa_passed, qa_screenshots, \
-         started_at, completed_at \
+         revision_instructions, started_at, completed_at \
          FROM execution_sessions WHERE task_id = $1 ORDER BY attempt DESC",
     )
     .bind(task_id)
@@ -24,6 +24,16 @@ pub async fn create_session(
     worktree_path: Option<&str>,
     branch_name: Option<&str>,
 ) -> Result<ExecutionSession, AppError> {
+    create_session_with_instructions(pool, task_id, worktree_path, branch_name, None).await
+}
+
+pub async fn create_session_with_instructions(
+    pool: &PgPool,
+    task_id: Uuid,
+    worktree_path: Option<&str>,
+    branch_name: Option<&str>,
+    revision_instructions: Option<&str>,
+) -> Result<ExecutionSession, AppError> {
     let attempt: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(attempt), 0) + 1 FROM execution_sessions WHERE task_id = $1",
     )
@@ -32,17 +42,18 @@ pub async fn create_session(
     .await?;
 
     Ok(sqlx::query_as::<_, ExecutionSession>(
-        "INSERT INTO execution_sessions (task_id, attempt, worktree_path, branch_name) \
-         VALUES ($1, $2, $3, $4) \
+        "INSERT INTO execution_sessions (task_id, attempt, worktree_path, branch_name, revision_instructions) \
+         VALUES ($1, $2, $3, $4, $5) \
          RETURNING id, task_id, attempt, status, worktree_path, branch_name, \
          plan_output, review_output, review_verdict, test_output, test_passed, \
          qa_output, qa_passed, qa_screenshots, \
-         started_at, completed_at",
+         revision_instructions, started_at, completed_at",
     )
     .bind(task_id)
     .bind(attempt)
     .bind(worktree_path)
     .bind(branch_name)
+    .bind(revision_instructions)
     .fetch_one(pool)
     .await?)
 }
@@ -106,7 +117,7 @@ async fn update_session_full(
         RETURNING id, task_id, attempt, status, worktree_path, branch_name,
         plan_output, review_output, review_verdict, test_output, test_passed,
         qa_output, qa_passed, qa_screenshots,
-        started_at, completed_at"#,
+        revision_instructions, started_at, completed_at"#,
     )
     .bind(session_id)
     .bind(status)
@@ -121,6 +132,15 @@ async fn update_session_full(
     .bind(qa_screenshots)
     .fetch_one(pool)
     .await?)
+}
+
+/// worktree_path を NULL にクリア（ワークツリー削除後に呼び出す）
+pub async fn clear_worktree_path(pool: &PgPool, session_id: Uuid) -> Result<(), AppError> {
+    sqlx::query("UPDATE execution_sessions SET worktree_path = NULL WHERE id = $1")
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn list_logs(

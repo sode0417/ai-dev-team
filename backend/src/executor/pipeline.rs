@@ -658,8 +658,324 @@ async fn run_coder_to_pr(
         }
     }
 
-    // Cleanup
-    let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
+    // PR作成タスクではワークツリーを保持（修正依頼に備える）
+    // ワークツリーは PR マージ後にバックグラウンドタスクで自動削除される
+    ws_hub.remove_channel(&task_id).await;
+    check_sprint_auto_transition(pool, ws_hub, task_id).await;
+}
+
+/// 修正依頼パイプライン: 既存ワークツリーで Coder→Reviewer→Test→QA→commit+push
+pub async fn run_revision_phase(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    task_id: Uuid,
+    title: &str,
+    description: &str,
+    instructions: &str,
+) {
+    // 最新セッションからワークツリー・ブランチ情報を取得
+    let sessions = exec_service::list_sessions(pool, task_id).await.unwrap_or_default();
+    let prev_session = match sessions.first() {
+        Some(s) => s,
+        None => {
+            let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Failed, None, None, None, None, Some("No previous session found")).await;
+            broadcast(ws_hub, task_id, "failed", "前回のセッションが見つかりません").await;
+            return;
+        }
+    };
+
+    let wt_path = match &prev_session.worktree_path {
+        Some(p) => p.clone(),
+        None => {
+            let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Failed, None, None, None, None, Some("No worktree path in previous session")).await;
+            broadcast(ws_hub, task_id, "failed", "ワークツリーが見つかりません（既に削除済み）").await;
+            return;
+        }
+    };
+    let branch_name = prev_session.branch_name.clone().unwrap_or_default();
+
+    // ワークツリーの存在確認
+    if !std::path::Path::new(&wt_path).exists() {
+        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Failed, None, None, None, None, Some("Worktree directory does not exist")).await;
+        broadcast(ws_hub, task_id, "failed", "ワークツリーディレクトリが存在しません").await;
+        return;
+    }
+
+    // 新しいセッションを作成（既存ワークツリーを再利用）
+    let session = match exec_service::create_session_with_instructions(
+        pool, task_id, Some(&wt_path), Some(&branch_name), Some(instructions),
+    ).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to create revision session: {e}");
+            let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Failed, None, None, None, None, Some(&format!("Session creation failed: {e}"))).await;
+            return;
+        }
+    };
+
+    let session_id = session.id;
+    // タスクの plan とヒアリングコンテキストを取得
+    let task = match task_service::get_task(pool, task_id).await {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+    let plan = task.plan.unwrap_or_default();
+    let hearing_context = task_service::get_hearing_context(pool, task_id).await.unwrap_or_default();
+
+    // === Coder (修正指示付き) ===
+    broadcast(ws_hub, task_id, "executing", "修正: Coder Agent 起動中...").await;
+    log(pool, session_id, "coder", 1, "info", &format!("修正 Coder Agent 開始: {instructions}")).await;
+
+    let hearing_section = if hearing_context.is_empty() {
+        String::new()
+    } else {
+        format!("## ヒアリング回答\n{hearing_context}\n")
+    };
+
+    let coder_prompt = format!(
+        "あなたは Coder Agent です。既存の PR に対して修正を行ってください。\n\n\
+        ## タスク\n\
+        タイトル: {title}\n\
+        説明: {description}\n\n\
+        {hearing_section}\
+        ## 元の実装計画\n\
+        {plan}\n\n\
+        ## 修正依頼\n\
+        {instructions}\n\n\
+        ## 指示\n\
+        - 上記の修正依頼に基づいて必要なコード変更を実装してください\n\
+        - これは既存 PR への追加修正です\n\
+        - 修正依頼の内容に集中し、余計な変更は避けてください"
+    );
+
+    let coder_result = match claude_cli::run_claude_autonomous(&coder_prompt, &wt_path, 1500).await {
+        Ok(r) => r,
+        Err(e) => {
+            fail_revision(pool, ws_hub, task_id, session_id, &e).await;
+            return;
+        }
+    };
+
+    if coder_result.exit_code != 0 {
+        let err = format!("Coder failed: {}", coder_result.stderr);
+        fail_revision(pool, ws_hub, task_id, session_id, &err).await;
+        return;
+    }
+
+    log(pool, session_id, "coder", 1, "info", "修正コード実装完了").await;
+
+    // === Reviewer ===
+    broadcast(ws_hub, task_id, "reviewing", "修正: Reviewer Agent 起動中...").await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Reviewing, None, None, None, None, None).await;
+
+    for iteration in 1..=2 {
+        log(pool, session_id, "reviewer", iteration, "info", &format!("修正レビュー iteration {iteration}")).await;
+
+        let diff = get_diff_output(&wt_path).await;
+        let reviewer_prompt = format!(
+            "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
+            ## タスク\n\
+            {description}\n\n\
+            ## 修正依頼\n\
+            {instructions}\n\n\
+            ## Diff\n\
+            ```\n{diff}\n```\n\n\
+            ## 指示\n\
+            - コード品質、バグ、セキュリティの観点でレビュー\n\
+            - 修正依頼の内容が適切に反映されているか確認\n\
+            - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
+        );
+
+        let review = match claude_cli::run_claude(&reviewer_prompt, &wt_path, 300).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Reviewer failed: {e}");
+                break;
+            }
+        };
+
+        let verdict = parse_verdict(&review.stdout);
+        log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}")).await;
+        let _ = exec_service::update_session(pool, session_id, "running", None, Some(&review.stdout), Some(&verdict), None, None).await;
+
+        if verdict == "APPROVE" || iteration == 2 {
+            break;
+        }
+
+        broadcast(ws_hub, task_id, "executing", &format!("修正中 (iteration {iteration})...")).await;
+        let fix_prompt = format!(
+            "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+            review.stdout
+        );
+        let _ = claude_cli::run_claude_autonomous(&fix_prompt, &wt_path, 600).await;
+    }
+
+    // === Test ===
+    broadcast(ws_hub, task_id, "executing", "修正: Test Agent 起動中...").await;
+
+    for iteration in 1..=2 {
+        log(pool, session_id, "test", iteration, "info", &format!("修正テスト iteration {iteration}")).await;
+
+        let test_prompt =
+            "あなたは Test Agent です。このプロジェクトのテストを実行してください。\n\n\
+            ## 指示\n\
+            - プロジェクトに適したテストコマンドを特定して実行\n\
+            - テスト結果を確認\n\
+            - 最終行に必ず VERDICT: PASS または VERDICT: FAIL を出力";
+
+        let test = match claude_cli::run_claude_autonomous(test_prompt, &wt_path, 300).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Test failed: {e}");
+                break;
+            }
+        };
+
+        let verdict = parse_test_verdict(&test.stdout);
+        let passed = verdict == "PASS";
+        log(pool, session_id, "test", iteration, "info", &format!("Test verdict: {verdict}")).await;
+        let _ = exec_service::update_session(pool, session_id, "running", None, None, None, Some(&test.stdout), Some(passed)).await;
+
+        if passed || iteration == 2 {
+            break;
+        }
+
+        broadcast(ws_hub, task_id, "executing", &format!("修正テスト修正中 (iteration {iteration})...")).await;
+        let fix_prompt = format!(
+            "テストが失敗しました。以下のテスト出力に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+            test.stdout
+        );
+        let _ = claude_cli::run_claude_autonomous(&fix_prompt, &wt_path, 600).await;
+    }
+
+    // === QA (フロントエンド変更時のみ) ===
+    let changed_files = get_changed_file_list(&wt_path).await;
+    if has_frontend_changes(&changed_files) {
+        broadcast(ws_hub, task_id, "executing", "修正: QA Agent 起動中 (Playwright)...").await;
+        log(pool, session_id, "qa", 1, "info", "修正 QA Agent 開始").await;
+
+        let screenshot_dir = format!("data/qa-screenshots/{task_id}");
+        let _ = tokio::fs::create_dir_all(&screenshot_dir).await;
+
+        let mcp_config_path = std::env::current_dir()
+            .map(|p| p.join("config/playwright-mcp.json").to_string_lossy().to_string())
+            .unwrap_or_else(|_| "config/playwright-mcp.json".to_string());
+
+        let qa_prompt = format!(
+            "あなたは QA Agent です。Playwright MCP を使ってフロントエンドの動作確認を行ってください。\n\n\
+            ## タスク\n\
+            タイトル: {title}\n\
+            説明: {description}\n\n\
+            ## 変更ファイル\n\
+            {changed_files}\n\n\
+            ## 指示\n\
+            1. まず開発サーバーを起動してください: `PORT=3199 npm run dev` (frontend/ ディレクトリで)\n\
+            2. Playwright MCP の browser_navigate で http://localhost:3199 にアクセス\n\
+            3. 変更に関連するページを確認し、以下をテスト:\n\
+               - ページが正しく表示されるか\n\
+               - UI 要素が期待通りに動作するか\n\
+               - エラーがコンソールに出ていないか\n\
+            4. 各確認ポイントで browser_take_screenshot でスクリーンショットを取得\n\
+            5. テスト完了後、開発サーバーを停止してください\n\
+            6. スクリーンショットファイルを `{screenshot_dir}/` にコピーしてください\n\
+            7. 最終行に必ず VERDICT: PASS または VERDICT: FAIL を出力\n\n\
+            ## 注意\n\
+            - dev server ポートは 3199 を使用（衝突回避）\n\
+            - スクリーンショットのファイル名は `01_toppage.png`, `02_detail.png` のように連番で"
+        );
+
+        for iteration in 1..=2 {
+            log(pool, session_id, "qa", iteration, "info", &format!("修正 QA iteration {iteration}")).await;
+
+            let qa_result = match claude_cli::run_claude_with_mcp(&qa_prompt, &wt_path, 600, &mcp_config_path).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("QA Agent failed: {e}");
+                    log(pool, session_id, "qa", iteration, "warn", &format!("QA Agent エラー: {e}")).await;
+                    break;
+                }
+            };
+
+            let verdict = parse_qa_verdict(&qa_result.stdout);
+            let passed = verdict == "PASS";
+            log(pool, session_id, "qa", iteration, "info", &format!("QA verdict: {verdict}")).await;
+
+            let screenshots = collect_screenshots(&screenshot_dir).await;
+            let screenshots_json = serde_json::to_value(&screenshots).unwrap_or_default();
+
+            let _ = exec_service::update_session_with_qa(
+                pool, session_id, "running",
+                Some(&qa_result.stdout), Some(passed), Some(&screenshots_json),
+            ).await;
+
+            if passed || iteration == 2 {
+                break;
+            }
+
+            broadcast(ws_hub, task_id, "executing", &format!("修正 QA 修正中 (iteration {iteration})...")).await;
+            let fix_prompt = format!(
+                "QA テストが失敗しました。以下の QA 結果に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+                qa_result.stdout
+            );
+            let _ = claude_cli::run_claude_autonomous(&fix_prompt, &wt_path, 600).await;
+        }
+    } else {
+        log(pool, session_id, "qa", 1, "info", "QA スキップ — フロントエンド変更なし").await;
+    }
+
+    // === Commit & Push (既存 PR に追加コミット) ===
+    broadcast(ws_hub, task_id, "executing", "修正コミット & プッシュ中...").await;
+
+    if !worktree::has_changes(&wt_path).await.unwrap_or(false) {
+        log(pool, session_id, "pr", 1, "warn", "変更なし — コミットスキップ").await;
+        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, None, None, None, None, None).await;
+        let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
+        broadcast(ws_hub, task_id, "completed", "修正完了（変更なし）").await;
+    } else {
+        let truncated: String = instructions.chars().take(60).collect();
+        let commit_msg = format!("fix: {truncated}");
+
+        match worktree::commit_and_push(&wt_path, &branch_name, &commit_msg).await {
+            Ok(()) => {
+                let diff_stats = worktree::get_diff_stats(&wt_path).await.unwrap_or_default();
+                let changed = worktree::get_changed_files(&wt_path).await.unwrap_or_default();
+                let files_json = serde_json::to_value(&changed).unwrap_or_default();
+
+                log(pool, session_id, "pr", 1, "info", "修正コミット & プッシュ完了").await;
+                let _ = task_service::update_task_execution(
+                    pool, task_id, TaskStatus::Completed, None, None,
+                    Some(&files_json), Some(&diff_stats), None,
+                ).await;
+                let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
+                broadcast(ws_hub, task_id, "completed", "修正完了: PR が更新されました").await;
+            }
+            Err(e) => {
+                fail_revision(pool, ws_hub, task_id, session_id, &e).await;
+                return;
+            }
+        }
+    }
+
+    ws_hub.remove_channel(&task_id).await;
+    check_sprint_auto_transition(pool, ws_hub, task_id).await;
+}
+
+/// 修正パイプライン失敗（ワークツリーは保持する）
+async fn fail_revision(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    task_id: Uuid,
+    session_id: Uuid,
+    error: &str,
+) {
+    tracing::error!("Revision pipeline failed for task {task_id}: {error}");
+    log(pool, session_id, "error", 1, "error", error).await;
+    let _ = task_service::update_task_execution(
+        pool, task_id, TaskStatus::Failed, None, None, None, None, Some(error),
+    ).await;
+    let _ = exec_service::update_session(pool, session_id, "failed", None, None, None, None, None).await;
+    broadcast(ws_hub, task_id, "failed", error).await;
+    // ワークツリーは保持（再度修正依頼できるように）
     ws_hub.remove_channel(&task_id).await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
@@ -846,7 +1162,16 @@ async fn fail_pipeline(
     .await;
     let _ = exec_service::update_session(pool, session_id, "failed", None, None, None, None, None).await;
     broadcast(ws_hub, task_id, "failed", error).await;
-    let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
+
+    // PR作成済みタスク（revision_count > 0 または pr_url あり）はワークツリーを保持
+    let should_keep = match task_service::get_task(pool, task_id).await {
+        Ok(t) => t.pr_url.is_some(),
+        Err(_) => false,
+    };
+    if !should_keep {
+        let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
+    }
+
     ws_hub.remove_channel(&task_id).await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }

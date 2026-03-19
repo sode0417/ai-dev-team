@@ -63,6 +63,7 @@ export interface Task {
   issue_url: string | null;
   merge_status: "pending" | "merged" | "conflict" | "failed" | null;
   merge_attempted_at: string | null;
+  revision_count: number;
 }
 
 export interface ExecutionSession {
@@ -80,6 +81,7 @@ export interface ExecutionSession {
   qa_output: string | null;
   qa_passed: boolean | null;
   qa_screenshots: string[] | null;
+  revision_instructions: string | null;
   started_at: string;
   completed_at: string | null;
 }
@@ -129,6 +131,15 @@ export interface ImprovementSuggestion {
   reason: string;
 }
 
+export interface ImprovementResultItem {
+  target: string;
+  description: string;
+  status: "applied" | "failed" | "skipped";
+  pr_url: string | null;
+  issue_url: string | null;
+  error: string | null;
+}
+
 export interface ScanResult extends ScanSession {
   tasks: Task[];
 }
@@ -145,6 +156,7 @@ export type SprintStatus =
   | "planning"
   | "executing"
   | "retrospective"
+  | "improving"
   | "completed"
   | "failed";
 
@@ -158,6 +170,7 @@ export interface Sprint {
   retrospective: string | null;
   improvement_suggestions: ImprovementSuggestion[] | null;
   user_feedback: string | null;
+  improvement_results: ImprovementResultItem[] | null;
   max_parallel_tasks: number;
   error_log: string | null;
   created_at: string;
@@ -167,6 +180,7 @@ export interface Sprint {
 
 export interface SprintWithTasks extends Sprint {
   tasks: Task[];
+  max_parallel_tasks: number | null;
 }
 
 export interface SprintWsMessage {

@@ -10,10 +10,12 @@ import {
   createSprintPlan,
   approveSprintPlan,
   submitSprintFeedback,
+  completeSprint,
   cancelSprint,
+  requestRevision,
 } from "@/lib/api";
 import { connectSprintWs } from "@/lib/ws";
-import type { SprintWithTasks, Task, SprintWsMessage } from "@/types";
+import type { SprintWithTasks, Task, SprintWsMessage, ImprovementResultItem } from "@/types";
 import { StatusBadge } from "./StatusBadge";
 import { PriorityBadge } from "./PriorityBadge";
 import { Markdown } from "./Markdown";
@@ -24,6 +26,7 @@ const PHASE_LABELS: Record<string, { label: string; color: string }> = {
   planning: { label: "実行計画", color: "bg-gh-purple" },
   executing: { label: "実行中", color: "bg-gh-green" },
   retrospective: { label: "振り返り", color: "bg-gh-blue" },
+  improving: { label: "改善実施", color: "bg-gh-orange" },
   completed: { label: "完了", color: "bg-gh-text-muted" },
   failed: { label: "失敗", color: "bg-gh-red" },
 };
@@ -47,6 +50,15 @@ export function SprintPanel({
       .catch((e) => setError(e.message));
   }, [sprintId]);
 
+  const handleRevision = useCallback(async (taskId: string, instructions: string) => {
+    try {
+      await requestRevision(taskId, instructions);
+      loadSprint();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    }
+  }, [loadSprint]);
+
   useEffect(() => {
     loadSprint();
   }, [loadSprint]);
@@ -58,7 +70,8 @@ export function SprintPanel({
       (msg) => {
         setWsMessages((prev) => [...prev, msg]);
         // フェーズ変更時にリロード
-        if (["completed", "plan_ready", "retrospective", "error", "task_done", "generating_retro"].includes(msg.phase)) {
+        // "improving" はリアルタイム進捗表示用（WsMessages に蓄積）、"improving_done" で完了リロード
+        if (["completed", "plan_ready", "retrospective", "improving_done", "error", "task_done", "generating_retro"].includes(msg.phase)) {
           loadSprint();
           onRefresh?.();
         }
@@ -71,7 +84,7 @@ export function SprintPanel({
   // 5秒ポーリング (hearing/executing 時)
   useEffect(() => {
     if (!sprint) return;
-    if (!["hearing", "executing", "planning"].includes(sprint.status)) return;
+    if (!["hearing", "executing", "planning", "improving"].includes(sprint.status)) return;
     const id = setInterval(loadSprint, 5000);
     return () => clearInterval(id);
   }, [sprint?.status, loadSprint]);
@@ -90,7 +103,7 @@ export function SprintPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`w-2.5 h-2.5 rounded-full ${phase.color} ${
-            ["hearing", "executing", "planning"].includes(sprint.status) ? "animate-pulse" : ""
+            ["hearing", "executing", "planning", "improving"].includes(sprint.status) ? "animate-pulse" : ""
           }`} />
           <span className="text-sm font-semibold text-gh-text">{phase.label}</span>
           <span className="text-xs text-gh-text-muted">
@@ -192,6 +205,18 @@ export function SprintPanel({
               setLoading(false);
             }
           }}
+          onRetryPlan={async () => {
+            setLoading(true);
+            setError(null);
+            try {
+              await createSprintPlan(sprintId);
+              loadSprint();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Failed");
+            } finally {
+              setLoading(false);
+            }
+          }}
         />
       )}
 
@@ -205,6 +230,7 @@ export function SprintPanel({
           feedback={feedback}
           loading={loading}
           onFeedbackChange={setFeedback}
+          onRevision={handleRevision}
           onSubmit={async () => {
             setLoading(true);
             try {
@@ -220,8 +246,28 @@ export function SprintPanel({
         />
       )}
 
+      {sprint.status === "improving" && (
+        <ImprovingPhase
+          sprint={sprint}
+          loading={loading}
+          wsMessages={wsMessages}
+          onComplete={async () => {
+            setLoading(true);
+            try {
+              await completeSprint(sprintId);
+              loadSprint();
+              onRefresh?.();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Failed");
+            } finally {
+              setLoading(false);
+            }
+          }}
+        />
+      )}
+
       {sprint.status === "completed" && (
-        <CompletedPhase sprint={sprint} />
+        <CompletedPhase sprint={sprint} onRevision={handleRevision} />
       )}
 
       {sprint.status === "failed" && (
@@ -240,7 +286,7 @@ export function SprintPanel({
 
 /* ─── Phase Timeline ─── */
 
-const PHASES = ["selecting", "hearing", "planning", "executing", "retrospective", "completed"];
+const PHASES = ["selecting", "hearing", "planning", "executing", "retrospective", "improving", "completed"];
 
 function PhaseTimeline({ status }: { status: string }) {
   const currentIdx = PHASES.indexOf(status);
@@ -482,18 +528,39 @@ function PlanningPhase({
   sprint,
   loading,
   onApprove,
+  onRetryPlan,
 }: {
   sprint: SprintWithTasks;
   loading: boolean;
   onApprove: (maxParallel: number) => void;
+  onRetryPlan: () => void;
 }) {
   const [maxParallel, setMaxParallel] = useState(3);
 
   if (!sprint.execution_plan) {
+    // 作成から2分以上経過していたらリトライボタンを表示
+    const createdAt = new Date(sprint.created_at).getTime();
+    const elapsed = Date.now() - createdAt;
+    const stale = elapsed > 2 * 60 * 1000;
+
     return (
-      <div className="flex items-center gap-3 p-4 rounded-lg border border-gh-border bg-gh-surface">
-        <div className="w-5 h-5 border-2 border-gh-purple border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gh-text-secondary">PM Agent が実行計画を作成中...</p>
+      <div className="p-4 rounded-lg border border-gh-border bg-gh-surface space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-gh-purple border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gh-text-secondary">PM Agent が実行計画を作成中...</p>
+        </div>
+        {stale && (
+          <div className="flex items-center justify-between p-3 rounded-md border border-gh-orange/30 bg-gh-orange/5">
+            <p className="text-xs text-gh-orange">計画生成が長時間停止している可能性があります</p>
+            <button
+              onClick={onRetryPlan}
+              disabled={loading}
+              className="px-3 py-1.5 bg-gh-orange/90 text-white rounded-md hover:bg-gh-orange transition text-xs font-medium disabled:opacity-50"
+            >
+              {loading ? "再実行中..." : "計画を再実行"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -503,7 +570,8 @@ function PlanningPhase({
   sprint.tasks
     .filter((t) => t.status !== "cancelled" && t.status !== "proposed")
     .forEach((t) => {
-      groupCounts[t.execution_group] = (groupCounts[t.execution_group] || 0) + 1;
+      const group = t.execution_group ?? 0;
+      groupCounts[group] = (groupCounts[group] || 0) + 1;
     });
   const groupEntries = Object.entries(groupCounts)
     .map(([g, c]) => ({ group: Number(g), count: c }))
@@ -568,6 +636,84 @@ function PlanningPhase({
 
 /* ─── Executing Phase ─── */
 
+function RevisionBadge({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gh-orange/15 text-gh-orange font-medium shrink-0">
+      修正{count}回
+    </span>
+  );
+}
+
+function RevisionButton({
+  task,
+  onRevision,
+}: {
+  task: Task;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [instructions, setInstructions] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // completed/failed で pr_url があり、improvement/development タイプのタスクのみ
+  if (
+    !["completed", "failed"].includes(task.status) ||
+    !task.pr_url ||
+    ["investigation", "operation"].includes(task.proposal_type)
+  ) {
+    return null;
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-gh-orange/40 text-gh-orange hover:bg-gh-orange/10 transition shrink-0"
+      >
+        修正依頼
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full mt-2 space-y-2">
+      <textarea
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        placeholder="修正内容を入力..."
+        rows={3}
+        className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-orange focus:ring-1 focus:ring-gh-orange/40 resize-none"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={async () => {
+            if (!instructions.trim()) return;
+            setSubmitting(true);
+            try {
+              await onRevision(task.id, instructions.trim());
+              setOpen(false);
+              setInstructions("");
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          disabled={submitting || !instructions.trim()}
+          className="px-3 py-1 bg-gh-orange/90 text-white rounded-md hover:bg-gh-orange transition text-xs font-medium disabled:opacity-50"
+        >
+          {submitting ? "送信中..." : "修正依頼を送信"}
+        </button>
+        <button
+          onClick={() => { setOpen(false); setInstructions(""); }}
+          className="px-3 py-1 text-gh-text-muted border border-gh-border rounded-md hover:bg-gh-surface transition text-xs"
+        >
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ExecutingPhase({
   sprint,
   wsMessages,
@@ -580,7 +726,7 @@ function ExecutingPhase({
   // グループごとにタスクを分類
   const groups: Record<number, Task[]> = {};
   activeTasks.forEach((t) => {
-    const g = t.execution_group;
+    const g = t.execution_group ?? 0;
     if (!groups[g]) groups[g] = [];
     groups[g].push(t);
   });
@@ -598,7 +744,7 @@ function ExecutingPhase({
           <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
             実行進捗
           </h4>
-          {sprint.max_parallel_tasks > 1 && (
+          {(sprint.max_parallel_tasks ?? 0) > 1 && (
             <span className="text-[10px] text-gh-text-muted">
               最大 {sprint.max_parallel_tasks} 並列
             </span>
@@ -620,6 +766,7 @@ function ExecutingPhase({
                 <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
                   {task.title}
                 </Link>
+                <RevisionBadge count={task.revision_count} />
                 {task.pr_url && (
                   <>
                     <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
@@ -656,12 +803,14 @@ function RetrospectivePhase({
   feedback,
   loading,
   onFeedbackChange,
+  onRevision,
   onSubmit,
 }: {
   sprint: SprintWithTasks;
   feedback: string;
   loading: boolean;
   onFeedbackChange: (v: string) => void;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
   onSubmit: () => void;
 }) {
   const completed = sprint.tasks.filter((t) => t.status === "completed");
@@ -693,6 +842,35 @@ function RetrospectivePhase({
         </div>
       )}
 
+      {/* Task list with revision buttons */}
+      <div className="rounded-lg border border-gh-border overflow-hidden">
+        <div className="px-4 py-2.5 bg-gh-surface border-b border-gh-border">
+          <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
+            タスク一覧
+          </h4>
+        </div>
+        {sprint.tasks
+          .filter((t) => t.status !== "cancelled")
+          .map((task) => (
+            <div key={task.id} className="px-4 py-2.5 border-b border-gh-border last:border-0">
+              <div className="flex items-center gap-3">
+                <StatusBadge status={task.status} />
+                <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
+                  {task.title}
+                </Link>
+                <RevisionBadge count={task.revision_count} />
+                {task.pr_url && (
+                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-gh-link hover:underline shrink-0">
+                    PR
+                  </a>
+                )}
+                <RevisionButton task={task} onRevision={onRevision} />
+              </div>
+            </div>
+          ))}
+      </div>
+
       {/* Feedback form */}
       <div className="p-4 rounded-lg border border-gh-border bg-gh-surface">
         <h4 className="text-xs font-semibold text-gh-text-secondary uppercase mb-2">
@@ -713,7 +891,7 @@ function RetrospectivePhase({
           disabled={loading || !feedback.trim()}
           className="mt-2 px-4 py-2 bg-gh-blue/90 text-white rounded-md hover:bg-gh-blue transition text-sm font-medium disabled:opacity-50"
         >
-          {loading ? "送信中..." : "送信してスプリント完了"}
+          {loading ? "送信中..." : "フィードバック送信"}
         </button>
       </div>
     </div>
@@ -741,9 +919,135 @@ function MergeStatusBadge({ status }: { status: string | null }) {
   );
 }
 
+/* ─── Improving Phase ─── */
+
+function ImprovingPhase({
+  sprint,
+  loading,
+  wsMessages,
+  onComplete,
+}: {
+  sprint: SprintWithTasks;
+  loading: boolean;
+  wsMessages: SprintWsMessage[];
+  onComplete: () => void;
+}) {
+  const results: ImprovementResultItem[] | null = sprint.improvement_results;
+  const isProcessing = !results || results.length === 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Processing indicator */}
+      {isProcessing && (
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-gh-border bg-gh-surface">
+          <div className="w-5 h-5 border-2 border-gh-orange border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gh-text-secondary">改善を実施中...</p>
+        </div>
+      )}
+
+      {/* Live messages */}
+      {wsMessages.filter((m) => m.phase === "improving" || m.phase === "improving_done").length > 0 && (
+        <div className="p-3 rounded-lg border border-gh-border bg-gh-surface max-h-48 overflow-y-auto">
+          {wsMessages
+            .filter((m) => m.phase === "improving" || m.phase === "improving_done")
+            .map((msg, i) => (
+              <div key={i} className="text-xs text-gh-text-secondary py-0.5">
+                <span className="text-gh-text-muted">[{msg.phase}]</span> {msg.message}
+              </div>
+            ))}
+        </div>
+      )}
+
+      {/* Results */}
+      {results && results.length > 0 && (
+        <div className="rounded-lg border border-gh-border overflow-hidden">
+          <div className="px-4 py-2.5 bg-gh-surface border-b border-gh-border">
+            <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
+              改善結果
+            </h4>
+          </div>
+          {results.map((result, i) => {
+            const statusIcon =
+              result.status === "applied" ? "\u2705" : result.status === "failed" ? "\u274c" : "\u23ed\ufe0f";
+            return (
+              <div
+                key={i}
+                className="px-4 py-3 border-b border-gh-border last:border-0"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="text-sm shrink-0">{statusIcon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-gh-blue/10 text-gh-blue font-medium">
+                        {result.target}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        result.status === "applied"
+                          ? "bg-gh-green/15 text-gh-green"
+                          : result.status === "failed"
+                          ? "bg-gh-red/15 text-gh-red"
+                          : "bg-gh-text-muted/15 text-gh-text-muted"
+                      }`}>
+                        {result.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gh-text">{result.description}</p>
+                    <div className="flex gap-3 mt-1">
+                      {result.pr_url && (
+                        <a
+                          href={result.pr_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gh-link hover:underline"
+                        >
+                          PR
+                        </a>
+                      )}
+                      {result.issue_url && (
+                        <a
+                          href={result.issue_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gh-link hover:underline"
+                        >
+                          Issue
+                        </a>
+                      )}
+                    </div>
+                    {result.error && (
+                      <p className="text-xs text-gh-red mt-1">{result.error}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Complete button */}
+      {results && results.length > 0 && (
+        <button
+          onClick={onComplete}
+          disabled={loading}
+          className="px-4 py-2 bg-gh-green/90 text-white rounded-md hover:bg-gh-green transition text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "完了処理中..." : "確認してスプリント完了"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ─── Completed Phase ─── */
 
-function CompletedPhase({ sprint }: { sprint: SprintWithTasks }) {
+function CompletedPhase({
+  sprint,
+  onRevision,
+}: {
+  sprint: SprintWithTasks;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
+}) {
   const completed = sprint.tasks.filter((t) => t.status === "completed");
   const failed = sprint.tasks.filter((t) => t.status === "failed");
 
@@ -776,20 +1080,24 @@ function CompletedPhase({ sprint }: { sprint: SprintWithTasks }) {
         {sprint.tasks
           .filter((t) => t.status !== "cancelled")
           .map((task) => (
-            <div key={task.id} className="px-4 py-2.5 border-b border-gh-border last:border-0 flex items-center gap-3">
-              <StatusBadge status={task.status} />
-              <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
-                {task.title}
-              </Link>
-              {task.pr_url && (
-                <>
-                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-gh-link hover:underline shrink-0">
-                    PR
-                  </a>
-                  <MergeStatusBadge status={task.merge_status} />
-                </>
-              )}
+            <div key={task.id} className="px-4 py-2.5 border-b border-gh-border last:border-0">
+              <div className="flex items-center gap-3">
+                <StatusBadge status={task.status} />
+                <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
+                  {task.title}
+                </Link>
+                <RevisionBadge count={task.revision_count} />
+                {task.pr_url && (
+                  <>
+                    <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-gh-link hover:underline shrink-0">
+                      PR
+                    </a>
+                    <MergeStatusBadge status={task.merge_status} />
+                  </>
+                )}
+                <RevisionButton task={task} onRevision={onRevision} />
+              </div>
             </div>
           ))}
       </div>

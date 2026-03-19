@@ -13,6 +13,17 @@ use crate::executor::claude_cli;
 use crate::github::GitHubClient;
 use crate::ws::WsHub;
 
+/// マルチバイト文字境界を考慮して文字列を切り詰める
+fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    match s.char_indices().take_while(|(i, _)| *i <= max_bytes).last() {
+        Some((i, c)) => &s[..i + c.len_utf8()],
+        None => s,
+    }
+}
+
 /// スキャン実行のメインエントリポイント（バックグラウンドで呼ばれる）
 /// sprint_id を scan_id としても使用（scan_sessions テーブルとの互換性維持）
 pub async fn run_scan(
@@ -173,11 +184,7 @@ async fn run_sprint_planning_inner(
     // タスク情報をプロンプトに
     let tasks_info: Vec<String> = ready_tasks.iter().enumerate().map(|(i, t)| {
         let plan_summary = t.plan.as_deref().unwrap_or("計画なし");
-        let plan_short = if plan_summary.len() > 300 {
-            &plan_summary[..300]
-        } else {
-            plan_summary
-        };
+        let plan_short = truncate_str(plan_summary, 300);
         format!(
             "{}. [{}] {} (priority: {:?})\n   説明: {}\n   計画概要: {}",
             i + 1, t.id, t.title, t.priority, t.description, plan_short
@@ -434,7 +441,7 @@ async fn run_retrospective(
             };
             let pr = t.pr_url.as_deref().unwrap_or("PR なし");
             let err = t.error_log.as_deref().map(|e| {
-                let short = if e.len() > 200 { &e[..200] } else { e };
+                let short = truncate_str(e, 200);
                 format!("\n   エラー: {short}")
             }).unwrap_or_default();
             format!("- [{}] {} → {}{}", status, t.title, pr, err)
@@ -475,6 +482,271 @@ async fn run_retrospective(
         .map_err(|e| format!("Failed to save retrospective: {e}"))?;
 
     Ok(())
+}
+
+/// 改善フェーズ実行
+pub async fn run_improving_phase(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    github: &GitHubClient,
+    sprint_id: Uuid,
+) {
+    let result = run_improving_phase_inner(pool, ws_hub, github, sprint_id).await;
+
+    match result {
+        Ok(()) => {
+            broadcast_progress(ws_hub, sprint_id, "improving_done", "改善フェーズが完了しました。結果を確認してください。").await;
+        }
+        Err(e) => {
+            tracing::error!("Improving phase failed for sprint {sprint_id}: {e}");
+            // エラーでも結果を保存して improving_done に
+            let error_result = serde_json::json!([{
+                "target": "error",
+                "description": format!("改善フェーズでエラーが発生: {e}"),
+                "status": "failed",
+                "pr_url": null,
+                "issue_url": null,
+                "error": format!("{e}"),
+            }]);
+            let _ = sprint_service::save_improvement_results(pool, sprint_id, &error_result).await;
+            broadcast_progress(ws_hub, sprint_id, "improving_done", &format!("改善フェーズでエラーが発生しましたが、スプリントを完了できます: {e}")).await;
+        }
+    }
+}
+
+async fn run_improving_phase_inner(
+    pool: &PgPool,
+    ws_hub: &WsHub,
+    github: &GitHubClient,
+    sprint_id: Uuid,
+) -> Result<(), String> {
+    let sprint = sprint_service::get_sprint(pool, sprint_id)
+        .await
+        .map_err(|e| format!("Failed to get sprint: {e}"))?;
+
+    let suggestions = sprint
+        .improvement_suggestions
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if suggestions.is_empty() {
+        return Ok(());
+    }
+
+    // プロジェクトのリポジトリ情報を取得
+    let repos: Vec<crate::domains::projects::model::ProjectRepository> = sqlx::query_as(
+        "SELECT id, project_id, owner, name, default_branch, local_path, created_at \
+         FROM project_repositories WHERE project_id = $1",
+    )
+    .bind(sprint.project_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("Failed to get repositories: {e}"))?;
+
+    // Issue 作成先のリポジトリ（最初のリポジトリを使用）
+    let (issue_owner, issue_repo) = repos
+        .first()
+        .map(|r| (r.owner.as_str(), r.name.as_str()))
+        .unwrap_or(("sode0417", "ai-dev-team"));
+
+    let mut results: Vec<serde_json::Value> = Vec::new();
+
+    for (i, suggestion) in suggestions.iter().enumerate() {
+        let target = suggestion["target"].as_str().unwrap_or("unknown");
+        let description = suggestion["description"].as_str().unwrap_or("");
+        let reason = suggestion["reason"].as_str().unwrap_or("");
+
+        broadcast_progress(
+            ws_hub, sprint_id, "improving",
+            &format!("改善 {}/{}: {} — {}", i + 1, suggestions.len(), target, description),
+        ).await;
+
+        let result = match target {
+            "CLAUDE.md" => {
+                process_claudemd_improvement(
+                    ws_hub, sprint_id, &repos, description, reason,
+                ).await
+            }
+            "planner_prompt" | "reviewer_prompt" | "test_prompt" => {
+                process_prompt_improvement(
+                    github, issue_owner, issue_repo, target, description, reason, sprint_id,
+                ).await
+            }
+            _ => {
+                // 未知のターゲットは GitHub Issue にする
+                process_prompt_improvement(
+                    github, issue_owner, issue_repo, target, description, reason, sprint_id,
+                ).await
+            }
+        };
+
+        results.push(result);
+    }
+
+    // 結果を DB に保存
+    let results_json = serde_json::to_value(&results)
+        .map_err(|e| format!("Failed to serialize results: {e}"))?;
+    sprint_service::save_improvement_results(pool, sprint_id, &results_json)
+        .await
+        .map_err(|e| format!("Failed to save improvement results: {e}"))?;
+
+    Ok(())
+}
+
+/// CLAUDE.md 改善: Claude CLI で worktree 上で編集 → PR 作成
+async fn process_claudemd_improvement(
+    ws_hub: &WsHub,
+    sprint_id: Uuid,
+    repos: &[crate::domains::projects::model::ProjectRepository],
+    description: &str,
+    reason: &str,
+) -> serde_json::Value {
+    let mut pr_urls: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    for repo in repos {
+        let local_path = match &repo.local_path {
+            Some(p) => p.clone(),
+            None => continue,
+        };
+
+        let base_branch = repo.default_branch.clone();
+        let improvement_id = Uuid::new_v4();
+
+        // worktree 作成
+        let (worktree_dir, branch_name) = match crate::executor::worktree::create_worktree(
+            &local_path, improvement_id, &base_branch,
+        ).await {
+            Ok(v) => v,
+            Err(e) => {
+                errors.push(format!("{}/{}: worktree作成失敗: {e}", repo.owner, repo.name));
+                continue;
+            }
+        };
+
+        let worktree_path = worktree_dir.to_str().unwrap_or("").to_string();
+
+        // Claude CLI で CLAUDE.md を編集
+        let prompt = format!(
+            "以下の改善点を CLAUDE.md に反映してください。変更は最小限にしてください。\n\n\
+             改善点: {description}\n根拠: {reason}\n\n\
+             CLAUDE.md ファイルが存在しない場合は何もしないでください。"
+        );
+
+        let cli_result = claude_cli::run_claude_autonomous(&prompt, &worktree_path, 120).await;
+
+        match cli_result {
+            Ok(result) if result.exit_code == 0 => {
+                // 変更があるか確認
+                match crate::executor::worktree::has_changes(&worktree_path).await {
+                    Ok(true) => {
+                        let desc_short: String = description.chars().take(50).collect();
+                        let pr_title = format!("[改善] CLAUDE.md: {}", desc_short);
+                        let pr_body = format!(
+                            "## 改善内容\n{description}\n\n## 根拠\n{reason}\n\n---\nスプリント {sprint_id} の振り返りから自動生成"
+                        );
+
+                        match crate::executor::worktree::commit_and_create_pr(
+                            &worktree_path, &branch_name, &pr_title, &pr_body,
+                        ).await {
+                            Ok(url) => {
+                                pr_urls.push(url.clone());
+                                broadcast_progress(ws_hub, sprint_id, "improving",
+                                    &format!("PR作成完了: {url}")).await;
+                            }
+                            Err(e) => errors.push(format!("{}/{}: PR作成失敗: {e}", repo.owner, repo.name)),
+                        }
+                    }
+                    Ok(false) => {
+                        // 変更なし — スキップ
+                    }
+                    Err(e) => errors.push(format!("{}/{}: 変更確認失敗: {e}", repo.owner, repo.name)),
+                }
+            }
+            Ok(result) => {
+                errors.push(format!("{}/{}: Claude CLI failed (exit {}): {}",
+                    repo.owner, repo.name, result.exit_code, result.stderr));
+            }
+            Err(e) => {
+                errors.push(format!("{}/{}: Claude CLI error: {e}", repo.owner, repo.name));
+            }
+        }
+
+        // worktree クリーンアップ
+        let _ = crate::executor::worktree::cleanup_worktree(&local_path, &worktree_dir).await;
+    }
+
+    if !pr_urls.is_empty() {
+        serde_json::json!({
+            "target": "CLAUDE.md",
+            "description": description,
+            "status": "applied",
+            "pr_url": pr_urls.join(", "),
+            "issue_url": null,
+            "error": if errors.is_empty() { None } else { Some(errors.join("; ")) },
+        })
+    } else if errors.is_empty() {
+        serde_json::json!({
+            "target": "CLAUDE.md",
+            "description": description,
+            "status": "skipped",
+            "pr_url": null,
+            "issue_url": null,
+            "error": "変更対象なし",
+        })
+    } else {
+        serde_json::json!({
+            "target": "CLAUDE.md",
+            "description": description,
+            "status": "failed",
+            "pr_url": null,
+            "issue_url": null,
+            "error": errors.join("; "),
+        })
+    }
+}
+
+/// プロンプト改善: GitHub Issue を作成
+async fn process_prompt_improvement(
+    github: &GitHubClient,
+    owner: &str,
+    repo_name: &str,
+    target: &str,
+    description: &str,
+    reason: &str,
+    sprint_id: Uuid,
+) -> serde_json::Value {
+    let desc_short: String = description.chars().take(60).collect();
+    let title = format!("[改善提案] {}: {}", target, desc_short);
+    let body = format!(
+        "## 改善対象\n`{target}`\n\n## 改善内容\n{description}\n\n## 根拠\n{reason}\n\n---\nスプリント `{sprint_id}` の振り返りから自動生成"
+    );
+    let labels = ["type:improvement", "auto-generated"];
+
+    match github.create_issue(owner, repo_name, &title, &body, &labels).await {
+        Ok(issue) => {
+            serde_json::json!({
+                "target": target,
+                "description": description,
+                "status": "applied",
+                "pr_url": null,
+                "issue_url": issue.html_url,
+                "error": null,
+            })
+        }
+        Err(e) => {
+            serde_json::json!({
+                "target": target,
+                "description": description,
+                "status": "failed",
+                "pr_url": null,
+                "issue_url": null,
+                "error": format!("GitHub Issue 作成失敗: {e}"),
+            })
+        }
+    }
 }
 
 /// 実行順序・並列グループ JSON を抽出
@@ -588,7 +860,7 @@ async fn collect_retrospective_data(pool: &PgPool, project_id: Uuid) -> String {
             section.push_str("\n失敗タスク:\n");
             for t in &failed {
                 let err = t.error_log.as_deref().unwrap_or("エラーログなし");
-                let err_short = if err.len() > 200 { &err[..200] } else { err };
+                let err_short = truncate_str(err, 200);
                 section.push_str(&format!("- \"{}\" — {}\n", t.title, err_short));
             }
         }

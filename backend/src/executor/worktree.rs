@@ -164,6 +164,76 @@ pub async fn commit_and_create_pr(
     Ok(pr_url)
 }
 
+/// git commit + push（既存PRに追加コミット、PR作成は行わない）
+pub async fn commit_and_push(
+    worktree_path: &str,
+    branch_name: &str,
+    message: &str,
+) -> Result<(), String> {
+    // git add
+    let add = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git add failed: {e}"))?;
+    if !add.status.success() {
+        return Err(format!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        ));
+    }
+
+    // git commit
+    let commit = Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git commit failed: {e}"))?;
+    if !commit.status.success() {
+        return Err(format!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        ));
+    }
+
+    // git push
+    let push = Command::new("git")
+        .args(["push", "origin", branch_name])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git push failed: {e}"))?;
+    if !push.status.success() {
+        return Err(format!(
+            "git push failed: {}",
+            String::from_utf8_lossy(&push.stderr)
+        ));
+    }
+
+    Ok(())
+}
+
+/// PR がクローズ済み（MERGED or CLOSED）かを確認
+pub async fn check_pr_closed_or_merged(pr_url: &str) -> Result<bool, String> {
+    let output = Command::new("gh")
+        .args(["pr", "view", pr_url, "--json", "state"])
+        .output()
+        .await
+        .map_err(|e| format!("gh pr view failed: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "gh pr view failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.contains("MERGED") || stdout.contains("CLOSED"))
+}
+
 /// diff の統計情報を取得
 pub async fn get_diff_stats(worktree_path: &str) -> Result<String, String> {
     let output = Command::new("git")

@@ -62,6 +62,7 @@ pub struct Task {
     pub issue_url: Option<String>,
     pub merge_status: Option<String>,
     pub merge_attempted_at: Option<DateTime<Utc>>,
+    pub revision_count: i32,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -149,4 +150,9 @@ pub struct ExecuteIssueRequest {
 pub struct RejectPlanRequest {
     pub action: String,       // "replan" | "cancel"
     pub feedback: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RequestRevisionRequest {
+    pub instructions: String,
 }
