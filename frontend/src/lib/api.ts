@@ -140,6 +140,14 @@ export function executeIssue(body: {
   });
 }
 
+// Revision
+export function requestRevision(taskId: string, instructions: string) {
+  return request<{ data: import("@/types").Task }>(
+    `/api/tasks/${taskId}/request-revision`,
+    { method: "POST", body: JSON.stringify({ instructions }) }
+  );
+}
+
 // Hearings
 export function fetchHearings(taskId: string) {
   return request<{ data: import("@/types").TaskHearing[] }>(

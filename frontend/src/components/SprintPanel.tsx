@@ -11,6 +11,7 @@ import {
   approveSprintPlan,
   submitSprintFeedback,
   cancelSprint,
+  requestRevision,
 } from "@/lib/api";
 import { connectSprintWs } from "@/lib/ws";
 import type { SprintWithTasks, Task, SprintWsMessage } from "@/types";
@@ -46,6 +47,15 @@ export function SprintPanel({
       .then((res) => setSprint(res.data))
       .catch((e) => setError(e.message));
   }, [sprintId]);
+
+  const handleRevision = useCallback(async (taskId: string, instructions: string) => {
+    try {
+      await requestRevision(taskId, instructions);
+      loadSprint();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    }
+  }, [loadSprint]);
 
   useEffect(() => {
     loadSprint();
@@ -217,6 +227,7 @@ export function SprintPanel({
           feedback={feedback}
           loading={loading}
           onFeedbackChange={setFeedback}
+          onRevision={handleRevision}
           onSubmit={async () => {
             setLoading(true);
             try {
@@ -233,7 +244,7 @@ export function SprintPanel({
       )}
 
       {sprint.status === "completed" && (
-        <CompletedPhase sprint={sprint} />
+        <CompletedPhase sprint={sprint} onRevision={handleRevision} />
       )}
 
       {sprint.status === "failed" && (
@@ -602,6 +613,84 @@ function PlanningPhase({
 
 /* ─── Executing Phase ─── */
 
+function RevisionBadge({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gh-orange/15 text-gh-orange font-medium shrink-0">
+      修正{count}回
+    </span>
+  );
+}
+
+function RevisionButton({
+  task,
+  onRevision,
+}: {
+  task: Task;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [instructions, setInstructions] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // completed/failed で pr_url があり、improvement/development タイプのタスクのみ
+  if (
+    !["completed", "failed"].includes(task.status) ||
+    !task.pr_url ||
+    ["investigation", "operation"].includes(task.proposal_type)
+  ) {
+    return null;
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-gh-orange/40 text-gh-orange hover:bg-gh-orange/10 transition shrink-0"
+      >
+        修正依頼
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full mt-2 space-y-2">
+      <textarea
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        placeholder="修正内容を入力..."
+        rows={3}
+        className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-orange focus:ring-1 focus:ring-gh-orange/40 resize-none"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={async () => {
+            if (!instructions.trim()) return;
+            setSubmitting(true);
+            try {
+              await onRevision(task.id, instructions.trim());
+              setOpen(false);
+              setInstructions("");
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          disabled={submitting || !instructions.trim()}
+          className="px-3 py-1 bg-gh-orange/90 text-white rounded-md hover:bg-gh-orange transition text-xs font-medium disabled:opacity-50"
+        >
+          {submitting ? "送信中..." : "修正依頼を送信"}
+        </button>
+        <button
+          onClick={() => { setOpen(false); setInstructions(""); }}
+          className="px-3 py-1 text-gh-text-muted border border-gh-border rounded-md hover:bg-gh-surface transition text-xs"
+        >
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ExecutingPhase({
   sprint,
   wsMessages,
@@ -654,6 +743,7 @@ function ExecutingPhase({
                 <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
                   {task.title}
                 </Link>
+                <RevisionBadge count={task.revision_count} />
                 {task.pr_url && (
                   <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
                     className="text-xs text-gh-link hover:underline shrink-0">
@@ -687,12 +777,14 @@ function RetrospectivePhase({
   feedback,
   loading,
   onFeedbackChange,
+  onRevision,
   onSubmit,
 }: {
   sprint: SprintWithTasks;
   feedback: string;
   loading: boolean;
   onFeedbackChange: (v: string) => void;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
   onSubmit: () => void;
 }) {
   const completed = sprint.tasks.filter((t) => t.status === "completed");
@@ -724,6 +816,35 @@ function RetrospectivePhase({
         </div>
       )}
 
+      {/* Task list with revision buttons */}
+      <div className="rounded-lg border border-gh-border overflow-hidden">
+        <div className="px-4 py-2.5 bg-gh-surface border-b border-gh-border">
+          <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
+            タスク一覧
+          </h4>
+        </div>
+        {sprint.tasks
+          .filter((t) => t.status !== "cancelled")
+          .map((task) => (
+            <div key={task.id} className="px-4 py-2.5 border-b border-gh-border last:border-0">
+              <div className="flex items-center gap-3">
+                <StatusBadge status={task.status} />
+                <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
+                  {task.title}
+                </Link>
+                <RevisionBadge count={task.revision_count} />
+                {task.pr_url && (
+                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-gh-link hover:underline shrink-0">
+                    PR
+                  </a>
+                )}
+                <RevisionButton task={task} onRevision={onRevision} />
+              </div>
+            </div>
+          ))}
+      </div>
+
       {/* Feedback form */}
       <div className="p-4 rounded-lg border border-gh-border bg-gh-surface">
         <h4 className="text-xs font-semibold text-gh-text-secondary uppercase mb-2">
@@ -753,7 +874,13 @@ function RetrospectivePhase({
 
 /* ─── Completed Phase ─── */
 
-function CompletedPhase({ sprint }: { sprint: SprintWithTasks }) {
+function CompletedPhase({
+  sprint,
+  onRevision,
+}: {
+  sprint: SprintWithTasks;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
+}) {
   const completed = sprint.tasks.filter((t) => t.status === "completed");
   const failed = sprint.tasks.filter((t) => t.status === "failed");
 
@@ -786,17 +913,21 @@ function CompletedPhase({ sprint }: { sprint: SprintWithTasks }) {
         {sprint.tasks
           .filter((t) => t.status !== "cancelled")
           .map((task) => (
-            <div key={task.id} className="px-4 py-2.5 border-b border-gh-border last:border-0 flex items-center gap-3">
-              <StatusBadge status={task.status} />
-              <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
-                {task.title}
-              </Link>
-              {task.pr_url && (
-                <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-gh-link hover:underline shrink-0">
-                  PR
-                </a>
-              )}
+            <div key={task.id} className="px-4 py-2.5 border-b border-gh-border last:border-0">
+              <div className="flex items-center gap-3">
+                <StatusBadge status={task.status} />
+                <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
+                  {task.title}
+                </Link>
+                <RevisionBadge count={task.revision_count} />
+                {task.pr_url && (
+                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-gh-link hover:underline shrink-0">
+                    PR
+                  </a>
+                )}
+                <RevisionButton task={task} onRevision={onRevision} />
+              </div>
             </div>
           ))}
       </div>

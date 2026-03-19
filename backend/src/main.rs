@@ -67,7 +67,7 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
          retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-         scan_id, proposal_type, sprint_id \
+         scan_id, proposal_type, sprint_id, revision_count \
          FROM tasks ORDER BY updated_at DESC LIMIT 10",
     )
     .fetch_all(&state.pool)
@@ -133,6 +133,64 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, id: Uuid) {
     }
 }
 
+/// PRマージ済みタスクのワークツリーを自動クリーンアップ
+async fn check_merged_prs(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // completed で pr_url があるタスクを取得
+    let tasks: Vec<domains::tasks::model::Task> = sqlx::query_as(
+        "SELECT id, project_id, repository_id, title, description, status, priority, \
+         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
+         scan_id, proposal_type, sprint_id, issue_number, issue_url, revision_count \
+         FROM tasks WHERE status IN ('completed', 'failed') AND pr_url IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for task in tasks {
+        let pr_url = match &task.pr_url {
+            Some(url) => url.clone(),
+            None => continue,
+        };
+
+        // 最新セッションの worktree_path を確認
+        let sessions = domains::executions::service::list_sessions(pool, task.id).await.unwrap_or_default();
+        let session = match sessions.first() {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let wt_path = match &session.worktree_path {
+            Some(p) => p.clone(),
+            None => continue, // 既にクリーンアップ済み
+        };
+
+        // PRがマージまたはクローズされたか確認
+        match executor::worktree::check_pr_closed_or_merged(&pr_url).await {
+            Ok(true) => {
+                tracing::info!("PR closed/merged for task {}: {pr_url} — cleaning up worktree", task.id);
+                let worktree_dir = std::path::PathBuf::from(&wt_path);
+
+                // リポジトリのパスを取得（worktree の親の親）
+                if let Some(repo_path) = worktree_dir.parent().and_then(|p| p.parent()) {
+                    let _ = executor::worktree::cleanup_worktree(
+                        repo_path.to_str().unwrap_or_default(),
+                        &worktree_dir,
+                    ).await;
+                }
+
+                // worktree_path を NULL にクリア
+                let _ = domains::executions::service::clear_worktree_path(pool, session.id).await;
+            }
+            Ok(false) => {} // まだマージされていない
+            Err(e) => {
+                tracing::debug!("Failed to check PR state for {pr_url}: {e}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn cors_layer(config: &Config) -> CorsLayer {
     use axum::http::{HeaderValue, Method};
 
@@ -194,6 +252,19 @@ async fn main() {
                         }
                     }
                     Err(e) => tracing::warn!("Failed to cleanup expired refresh tokens: {e}"),
+                }
+            }
+        });
+    }
+
+    // PRマージ自動検知バックグラウンドタスク（5分間隔）
+    {
+        let pool = state.pool.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                if let Err(e) = check_merged_prs(&pool).await {
+                    tracing::warn!("PR merge check failed: {e}");
                 }
             }
         });
