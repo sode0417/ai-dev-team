@@ -1,6 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use tokio::process::Command;
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+/// プロセス全体で単一の Mutex。git fetch / worktree add / worktree prune など
+/// .git/config.lock を取得する操作をシリアライズし、並列実行時のロック競合を防ぐ。
+static GIT_MUTEX: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// git worktree を作成して分離された作業ディレクトリを返す
 pub async fn create_worktree(
@@ -13,46 +19,54 @@ pub async fn create_worktree(
         .join(format!("task-{}", task_id));
     let branch_name = format!("task/{}", task_id);
 
-    // .worktrees ディレクトリを作成
+    // .worktrees ディレクトリを作成（ロック不要）
     tokio::fs::create_dir_all(worktree_dir.parent().unwrap())
         .await
         .map_err(|e| format!("Failed to create worktrees dir: {e}"))?;
 
-    // まず最新を fetch
-    let fetch = Command::new("git")
-        .args(["fetch", "origin", base_branch])
-        .current_dir(repo_path)
-        .output()
-        .await
-        .map_err(|e| format!("git fetch failed: {e}"))?;
+    // git 操作を Mutex でシリアライズ（.git/config.lock 競合防止）
+    {
+        let _guard = GIT_MUTEX.lock().await;
+        tracing::info!(task_id = %task_id, "git mutex acquired for worktree creation");
 
-    if !fetch.status.success() {
-        tracing::warn!(
-            "git fetch warning: {}",
-            String::from_utf8_lossy(&fetch.stderr)
-        );
-    }
+        // まず最新を fetch
+        let fetch = Command::new("git")
+            .args(["fetch", "origin", base_branch])
+            .current_dir(repo_path)
+            .output()
+            .await
+            .map_err(|e| format!("git fetch failed: {e}"))?;
 
-    // worktree 作成（新ブランチ）
-    let output = Command::new("git")
-        .args([
-            "worktree",
-            "add",
-            "-b",
-            &branch_name,
-            worktree_dir.to_str().unwrap(),
-            &format!("origin/{base_branch}"),
-        ])
-        .current_dir(repo_path)
-        .output()
-        .await
-        .map_err(|e| format!("git worktree add failed: {e}"))?;
+        if !fetch.status.success() {
+            tracing::warn!(
+                "git fetch warning: {}",
+                String::from_utf8_lossy(&fetch.stderr)
+            );
+        }
 
-    if !output.status.success() {
-        return Err(format!(
-            "git worktree add failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+        // worktree 作成（新ブランチ）
+        let output = Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "-b",
+                &branch_name,
+                worktree_dir.to_str().unwrap(),
+                &format!("origin/{base_branch}"),
+            ])
+            .current_dir(repo_path)
+            .output()
+            .await
+            .map_err(|e| format!("git worktree add failed: {e}"))?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "git worktree add failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        tracing::info!(task_id = %task_id, "git mutex released after worktree creation");
     }
 
     Ok((worktree_dir, branch_name))
@@ -60,26 +74,31 @@ pub async fn create_worktree(
 
 /// git worktree を削除
 pub async fn cleanup_worktree(repo_path: &str, worktree_path: &Path) -> Result<(), String> {
-    // worktree ディレクトリを削除
+    // worktree ディレクトリを削除（ファイルシステム操作のみなのでロック不要）
     if worktree_path.exists() {
         tokio::fs::remove_dir_all(worktree_path)
             .await
             .map_err(|e| format!("Failed to remove worktree dir: {e}"))?;
     }
 
-    // git worktree prune で参照を削除
-    let output = Command::new("git")
-        .args(["worktree", "prune"])
-        .current_dir(repo_path)
-        .output()
-        .await
-        .map_err(|e| format!("git worktree prune failed: {e}"))?;
+    // git worktree prune は .git/config.lock を取得するため Mutex で保護
+    {
+        let _guard = GIT_MUTEX.lock().await;
+        tracing::info!("git mutex acquired for worktree prune");
 
-    if !output.status.success() {
-        tracing::warn!(
-            "git worktree prune warning: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        let output = Command::new("git")
+            .args(["worktree", "prune"])
+            .current_dir(repo_path)
+            .output()
+            .await
+            .map_err(|e| format!("git worktree prune failed: {e}"))?;
+
+        if !output.status.success() {
+            tracing::warn!(
+                "git worktree prune warning: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
     Ok(())
