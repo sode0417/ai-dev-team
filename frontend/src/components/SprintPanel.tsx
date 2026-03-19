@@ -195,6 +195,18 @@ export function SprintPanel({
               setLoading(false);
             }
           }}
+          onRetryPlan={async () => {
+            setLoading(true);
+            setError(null);
+            try {
+              await createSprintPlan(sprintId);
+              loadSprint();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Failed");
+            } finally {
+              setLoading(false);
+            }
+          }}
         />
       )}
 
@@ -505,18 +517,39 @@ function PlanningPhase({
   sprint,
   loading,
   onApprove,
+  onRetryPlan,
 }: {
   sprint: SprintWithTasks;
   loading: boolean;
   onApprove: (maxParallel: number) => void;
+  onRetryPlan: () => void;
 }) {
   const [maxParallel, setMaxParallel] = useState(3);
 
   if (!sprint.execution_plan) {
+    // 作成から2分以上経過していたらリトライボタンを表示
+    const createdAt = new Date(sprint.created_at).getTime();
+    const elapsed = Date.now() - createdAt;
+    const stale = elapsed > 2 * 60 * 1000;
+
     return (
-      <div className="flex items-center gap-3 p-4 rounded-lg border border-gh-border bg-gh-surface">
-        <div className="w-5 h-5 border-2 border-gh-purple border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gh-text-secondary">PM Agent が実行計画を作成中...</p>
+      <div className="p-4 rounded-lg border border-gh-border bg-gh-surface space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-gh-purple border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gh-text-secondary">PM Agent が実行計画を作成中...</p>
+        </div>
+        {stale && (
+          <div className="flex items-center justify-between p-3 rounded-md border border-gh-orange/30 bg-gh-orange/5">
+            <p className="text-xs text-gh-orange">計画生成が長時間停止している可能性があります</p>
+            <button
+              onClick={onRetryPlan}
+              disabled={loading}
+              className="px-3 py-1.5 bg-gh-orange/90 text-white rounded-md hover:bg-gh-orange transition text-xs font-medium disabled:opacity-50"
+            >
+              {loading ? "再実行中..." : "計画を再実行"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -526,7 +559,8 @@ function PlanningPhase({
   sprint.tasks
     .filter((t) => t.status !== "cancelled" && t.status !== "proposed")
     .forEach((t) => {
-      groupCounts[t.execution_group] = (groupCounts[t.execution_group] || 0) + 1;
+      const group = t.execution_group ?? 0;
+      groupCounts[group] = (groupCounts[group] || 0) + 1;
     });
   const groupEntries = Object.entries(groupCounts)
     .map(([g, c]) => ({ group: Number(g), count: c }))
@@ -603,7 +637,7 @@ function ExecutingPhase({
   // グループごとにタスクを分類
   const groups: Record<number, Task[]> = {};
   activeTasks.forEach((t) => {
-    const g = t.execution_group;
+    const g = t.execution_group ?? 0;
     if (!groups[g]) groups[g] = [];
     groups[g].push(t);
   });
@@ -621,7 +655,7 @@ function ExecutingPhase({
           <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
             実行進捗
           </h4>
-          {sprint.max_parallel_tasks > 1 && (
+          {(sprint.max_parallel_tasks ?? 0) > 1 && (
             <span className="text-[10px] text-gh-text-muted">
               最大 {sprint.max_parallel_tasks} 並列
             </span>

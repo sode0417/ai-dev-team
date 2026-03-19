@@ -1,0 +1,49 @@
+[      92ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[     156ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[    5268ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   10407ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   15462ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   20611ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   25721ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   30776ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   35914ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   41046ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   46195ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   51212ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   56318ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   57254ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   57321ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   62422ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   67565ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   72716ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   77860ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   82929ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   87933ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   90194ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications?token=mock-token' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   90208ms] TypeError: Cannot read properties of undefined (reading 'length')
+    at DashboardPage (http://localhost:3199/_next/static/chunks/src_329b8267._.js:253:31)
+    at Object.react_stack_bottom_frame (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6708:24)
+    at runWithFiberInDEV (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64)
+[  125532ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications?token=mock-token' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[  125550ms] TypeError: Cannot read properties of undefined (reading 'length')
+    at DashboardPage (http://localhost:3199/_next/static/chunks/src_329b8267._.js:253:31)
+    at Object.react_stack_bottom_frame (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6708:24)
+    at runWithFiberInDEV (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64)

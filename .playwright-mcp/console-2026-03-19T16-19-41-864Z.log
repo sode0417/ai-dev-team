@@ -1,0 +1,409 @@
+[     115ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications?token=mock-token' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[     157ms] TypeError: Cannot read properties of undefined (reading 'find')
+    at ProjectDetailPage (http://localhost:3199/_next/static/chunks/src_99cd6499._.js:2483:47)
+    at Object.react_stack_bottom_frame (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6708:24)
+    at runWithFiberInDEV (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64)
+[    5406ms] [ERROR] ./node_modules/unified/lib/index.js:352:1
+Module not found: Can't resolve 'is-plain-obj'
+  350 | import extend from 'extend'
+  351 | import {ok as assert} from 'devlop'
+> 352 | import isPlainObj from 'is-plain-obj'
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  353 | import {trough} from 'trough'
+  354 | import {VFile} from 'vfile'
+  355 | import {CallableInstance} from './callable-instance.js'
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/unified/lib/index.js [Client Component Browser]
+    ./node_modules/react-markdown/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/unified/lib/index.js [Client Component SSR]
+    ./node_modules/react-markdown/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5407ms] [ERROR] ./node_modules/micromark-extension-gfm-footnote/dev/lib/syntax.js:6:1
+Module not found: Can't resolve 'micromark-core-commonmark'
+  4 |
+  5 | import {ok as assert} from 'devlop'
+> 6 | import {blankLine} from 'micromark-core-commonmark'
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  7 | import {factorySpace} from 'micromark-factory-space'
+  8 | import {markdownLineEndingOrSpace} from 'micromark-util-character'
+  9 | import {normalizeIdentifier} from 'micromark-util-normalize-identifier'
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/micromark-extension-gfm-footnote/dev/lib/syntax.js [Client Component Browser]
+    ./node_modules/micromark-extension-gfm/index.js [Client Component Browser]
+    ./node_modules/remark-gfm/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/micromark-extension-gfm-footnote/dev/lib/syntax.js [Client Component SSR]
+    ./node_modules/micromark-extension-gfm/index.js [Client Component SSR]
+    ./node_modules/remark-gfm/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5407ms] [ERROR] ./node_modules/micromark/dev/lib/constructs.js:5:1
+Module not found: Can't resolve 'micromark-core-commonmark'
+   3 |  */
+   4 |
+>  5 | import {
+     | ^^^^^^^^
+>  6 |   attention,
+     | ^^^^^^^^^^^^
+>  7 |   autolink,
+     | ^^^^^^^^^^^^
+>  8 |   blockQuote,
+     | ^^^^^^^^^^^^
+>  9 |   characterEscape,
+     | ^^^^^^^^^^^^
+> 10 |   characterReference,
+     | ^^^^^^^^^^^^
+> 11 |   codeFenced,
+     | ^^^^^^^^^^^^
+> 12 |   codeIndented,
+     | ^^^^^^^^^^^^
+> 13 |   codeText,
+     | ^^^^^^^^^^^^
+> 14 |   definition,
+     | ^^^^^^^^^^^^
+> 15 |   hardBreakEscape,
+     | ^^^^^^^^^^^^
+> 16 |   headingAtx,
+     | ^^^^^^^^^^^^
+> 17 |   htmlFlow,
+     | ^^^^^^^^^^^^
+> 18 |   htmlText,
+     | ^^^^^^^^^^^^
+> 19 |   labelEnd,
+     | ^^^^^^^^^^^^
+> 20 |   labelStartImage,
+     | ^^^^^^^^^^^^
+> 21 |   labelStartLink,
+     | ^^^^^^^^^^^^
+> 22 |   lineEnding,
+     | ^^^^^^^^^^^^
+> 23 |   list,
+     | ^^^^^^^^^^^^
+> 24 |   setextUnderline,
+     | ^^^^^^^^^^^^
+> 25 |   thematicBreak
+     | ^^^^^^^^^^^^
+> 26 | } from 'micromark-core-commonmark'
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  27 | import {codes} from 'micromark-util-symbol'
+  28 | import {resolver as resolveText} from './initialize/text.js'
+  29 |
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/micromark/dev/lib/constructs.js [Client Component Browser]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component Browser]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component Browser]
+    ./node_modules/remark-parse/lib/index.js [Client Component Browser]
+    ./node_modules/react-markdown/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/micromark/dev/lib/constructs.js [Client Component SSR]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component SSR]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component SSR]
+    ./node_modules/remark-parse/lib/index.js [Client Component SSR]
+    ./node_modules/react-markdown/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5407ms] [ERROR] ./node_modules/micromark/dev/lib/initialize/flow.js:11:1
+Module not found: Can't resolve 'micromark-core-commonmark'
+   9 |
+  10 | import {ok as assert} from 'devlop'
+> 11 | import {blankLine, content} from 'micromark-core-commonmark'
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  12 | import {factorySpace} from 'micromark-factory-space'
+  13 | import {markdownLineEnding} from 'micromark-util-character'
+  14 | import {codes, types} from 'micromark-util-symbol'
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/micromark/dev/lib/initialize/flow.js [Client Component Browser]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component Browser]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component Browser]
+    ./node_modules/remark-parse/lib/index.js [Client Component Browser]
+    ./node_modules/react-markdown/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/micromark/dev/lib/initialize/flow.js [Client Component SSR]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component SSR]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component SSR]
+    ./node_modules/remark-parse/lib/index.js [Client Component SSR]
+    ./node_modules/react-markdown/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5648ms] [ERROR] ./node_modules/unified/lib/index.js:352:1
+Module not found: Can't resolve 'is-plain-obj'
+  350 | import extend from 'extend'
+  351 | import {ok as assert} from 'devlop'
+> 352 | import isPlainObj from 'is-plain-obj'
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  353 | import {trough} from 'trough'
+  354 | import {VFile} from 'vfile'
+  355 | import {CallableInstance} from './callable-instance.js'
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/unified/lib/index.js [Client Component Browser]
+    ./node_modules/react-markdown/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/unified/lib/index.js [Client Component SSR]
+    ./node_modules/react-markdown/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5648ms] [ERROR] ./node_modules/micromark-extension-gfm-footnote/dev/lib/syntax.js:6:1
+Module not found: Can't resolve 'micromark-core-commonmark'
+  4 |
+  5 | import {ok as assert} from 'devlop'
+> 6 | import {blankLine} from 'micromark-core-commonmark'
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  7 | import {factorySpace} from 'micromark-factory-space'
+  8 | import {markdownLineEndingOrSpace} from 'micromark-util-character'
+  9 | import {normalizeIdentifier} from 'micromark-util-normalize-identifier'
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/micromark-extension-gfm-footnote/dev/lib/syntax.js [Client Component Browser]
+    ./node_modules/micromark-extension-gfm/index.js [Client Component Browser]
+    ./node_modules/remark-gfm/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/micromark-extension-gfm-footnote/dev/lib/syntax.js [Client Component SSR]
+    ./node_modules/micromark-extension-gfm/index.js [Client Component SSR]
+    ./node_modules/remark-gfm/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5648ms] [ERROR] ./node_modules/micromark/dev/lib/constructs.js:5:1
+Module not found: Can't resolve 'micromark-core-commonmark'
+   3 |  */
+   4 |
+>  5 | import {
+     | ^^^^^^^^
+>  6 |   attention,
+     | ^^^^^^^^^^^^
+>  7 |   autolink,
+     | ^^^^^^^^^^^^
+>  8 |   blockQuote,
+     | ^^^^^^^^^^^^
+>  9 |   characterEscape,
+     | ^^^^^^^^^^^^
+> 10 |   characterReference,
+     | ^^^^^^^^^^^^
+> 11 |   codeFenced,
+     | ^^^^^^^^^^^^
+> 12 |   codeIndented,
+     | ^^^^^^^^^^^^
+> 13 |   codeText,
+     | ^^^^^^^^^^^^
+> 14 |   definition,
+     | ^^^^^^^^^^^^
+> 15 |   hardBreakEscape,
+     | ^^^^^^^^^^^^
+> 16 |   headingAtx,
+     | ^^^^^^^^^^^^
+> 17 |   htmlFlow,
+     | ^^^^^^^^^^^^
+> 18 |   htmlText,
+     | ^^^^^^^^^^^^
+> 19 |   labelEnd,
+     | ^^^^^^^^^^^^
+> 20 |   labelStartImage,
+     | ^^^^^^^^^^^^
+> 21 |   labelStartLink,
+     | ^^^^^^^^^^^^
+> 22 |   lineEnding,
+     | ^^^^^^^^^^^^
+> 23 |   list,
+     | ^^^^^^^^^^^^
+> 24 |   setextUnderline,
+     | ^^^^^^^^^^^^
+> 25 |   thematicBreak
+     | ^^^^^^^^^^^^
+> 26 | } from 'micromark-core-commonmark'
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  27 | import {codes} from 'micromark-util-symbol'
+  28 | import {resolver as resolveText} from './initialize/text.js'
+  29 |
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/micromark/dev/lib/constructs.js [Client Component Browser]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component Browser]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component Browser]
+    ./node_modules/remark-parse/lib/index.js [Client Component Browser]
+    ./node_modules/react-markdown/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/micromark/dev/lib/constructs.js [Client Component SSR]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component SSR]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component SSR]
+    ./node_modules/remark-parse/lib/index.js [Client Component SSR]
+    ./node_modules/react-markdown/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    5648ms] [ERROR] ./node_modules/micromark/dev/lib/initialize/flow.js:11:1
+Module not found: Can't resolve 'micromark-core-commonmark'
+   9 |
+  10 | import {ok as assert} from 'devlop'
+> 11 | import {blankLine, content} from 'micromark-core-commonmark'
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  12 | import {factorySpace} from 'micromark-factory-space'
+  13 | import {markdownLineEnding} from 'micromark-util-character'
+  14 | import {codes, types} from 'micromark-util-symbol'
+
+Import traces:
+  Client Component Browser:
+    ./node_modules/micromark/dev/lib/initialize/flow.js [Client Component Browser]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component Browser]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component Browser]
+    ./node_modules/remark-parse/lib/index.js [Client Component Browser]
+    ./node_modules/react-markdown/lib/index.js [Client Component Browser]
+    ./src/components/Markdown.tsx [Client Component Browser]
+    ./src/components/SprintPanel.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Client Component Browser]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./node_modules/micromark/dev/lib/initialize/flow.js [Client Component SSR]
+    ./node_modules/micromark/dev/lib/parse.js [Client Component SSR]
+    ./node_modules/mdast-util-from-markdown/dev/lib/index.js [Client Component SSR]
+    ./node_modules/remark-parse/lib/index.js [Client Component SSR]
+    ./node_modules/react-markdown/lib/index.js [Client Component SSR]
+    ./src/components/Markdown.tsx [Client Component SSR]
+    ./src/components/SprintPanel.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Client Component SSR]
+    ./src/app/projects/[id]/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[    6822ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[    7829ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[    8913ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   10047ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   11190ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   16272ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   21394ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   26545ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   31696ms] [ERROR] WebSocket connection to 'ws://localhost:3199/_next/webpack-hmr?id=3l0YdP5-qG7tKQR2_N2oE' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3199/_next/static/chunks/node_modules_next_dist_client_17643121._.js:10878
+[   43614ms] TypeError: Cannot read properties of undefined (reading 'find')
+    at ProjectDetailPage (http://localhost:3199/_next/static/chunks/src_ff379e16._.js:2748:47)
+    at Object.react_stack_bottom_frame (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6708:24)
+    at runWithFiberInDEV (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64)
+[   71351ms] TypeError: Cannot read properties of undefined (reading 'find')
+    at ProjectDetailPage (http://localhost:3199/_next/static/chunks/src_ff379e16._.js:2748:47)
+    at Object.react_stack_bottom_frame (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6708:24)
+    at runWithFiberInDEV (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64)
+[  187817ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  187822ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  187827ms] TypeError: Cannot read properties of undefined (reading 'filter')
+    at SprintPanel (http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1051:38)
+    at Object.react_stack_bottom_frame (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:14826:24)
+    at renderWithHooks (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:4651:24)
+    at updateFunctionComponent (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6112:21)
+    at beginWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:6708:24)
+    at runWithFiberInDEV (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:965:74)
+    at performUnitOfWork (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9562:97)
+    at workLoopSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9456:40)
+    at renderRootSync (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9440:13)
+    at performWorkOnRoot (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:9105:47)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3199/_next/static/chunks/node_modules_next_dist_compiled_a0e4c7b4._.js:2647:64)
+[  187829ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  240618ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  240620ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  240622ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  240634ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: Error during WebSocket handshake: Unexpected response code: 400 @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:676
+[  304066ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  304068ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  304071ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:1009
+[  304078ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/sprints/s1?token=mock-token' failed: Error during WebSocket handshake: Unexpected response code: 400 @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:676

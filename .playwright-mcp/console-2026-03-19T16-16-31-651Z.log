@@ -1,0 +1,7 @@
+[     134ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[     209ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[    5353ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   10489ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   15625ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   20778ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083
+[   25881ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: Error during WebSocket handshake: Unexpected response code: 404 @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1083

@@ -13,6 +13,17 @@ use crate::executor::claude_cli;
 use crate::github::GitHubClient;
 use crate::ws::WsHub;
 
+/// マルチバイト文字境界を考慮して文字列を切り詰める
+fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    match s.char_indices().take_while(|(i, _)| *i <= max_bytes).last() {
+        Some((i, c)) => &s[..i + c.len_utf8()],
+        None => s,
+    }
+}
+
 /// スキャン実行のメインエントリポイント（バックグラウンドで呼ばれる）
 /// sprint_id を scan_id としても使用（scan_sessions テーブルとの互換性維持）
 pub async fn run_scan(
@@ -173,11 +184,7 @@ async fn run_sprint_planning_inner(
     // タスク情報をプロンプトに
     let tasks_info: Vec<String> = ready_tasks.iter().enumerate().map(|(i, t)| {
         let plan_summary = t.plan.as_deref().unwrap_or("計画なし");
-        let plan_short = if plan_summary.len() > 300 {
-            &plan_summary[..300]
-        } else {
-            plan_summary
-        };
+        let plan_short = truncate_str(plan_summary, 300);
         format!(
             "{}. [{}] {} (priority: {:?})\n   説明: {}\n   計画概要: {}",
             i + 1, t.id, t.title, t.priority, t.description, plan_short
@@ -434,7 +441,7 @@ async fn run_retrospective(
             };
             let pr = t.pr_url.as_deref().unwrap_or("PR なし");
             let err = t.error_log.as_deref().map(|e| {
-                let short = if e.len() > 200 { &e[..200] } else { e };
+                let short = truncate_str(e, 200);
                 format!("\n   エラー: {short}")
             }).unwrap_or_default();
             format!("- [{}] {} → {}{}", status, t.title, pr, err)
@@ -853,7 +860,7 @@ async fn collect_retrospective_data(pool: &PgPool, project_id: Uuid) -> String {
             section.push_str("\n失敗タスク:\n");
             for t in &failed {
                 let err = t.error_log.as_deref().unwrap_or("エラーログなし");
-                let err_short = if err.len() > 200 { &err[..200] } else { err };
+                let err_short = truncate_str(err, 200);
                 section.push_str(&format!("- \"{}\" — {}\n", t.title, err_short));
             }
         }

@@ -133,8 +133,14 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, id: Uuid) {
     }
 }
 
-fn cors_layer() -> CorsLayer {
+fn cors_layer(config: &Config) -> CorsLayer {
     use axum::http::{HeaderValue, Method};
+
+    let origins: Vec<HeaderValue> = config
+        .allowed_origins
+        .iter()
+        .filter_map(|o| o.parse().ok())
+        .collect();
 
     CorsLayer::new()
         .allow_methods([
@@ -144,10 +150,7 @@ fn cors_layer() -> CorsLayer {
             Method::DELETE,
         ])
         .allow_headers(tower_http::cors::Any)
-        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
-            let origin = origin.to_str().unwrap_or_default();
-            origin.starts_with("http://localhost:") || origin.contains("sode-ai.com")
-        }))
+        .allow_origin(AllowOrigin::list(origins))
 }
 
 #[tokio::main]
@@ -219,7 +222,7 @@ async fn main() {
         .route("/ws/scans/{scan_id}", axum::routing::get(ws_handler))
         .route("/ws/sprints/{sprint_id}", axum::routing::get(ws_handler))
         .layer(TraceLayer::new_for_http())
-        .layer(cors_layer())
+        .layer(cors_layer(&config))
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
