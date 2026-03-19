@@ -9,6 +9,7 @@ use crate::domains::scans::model::ScanAnalysisOutput;
 use crate::domains::scans::service as scan_service;
 use crate::domains::sprints::service as sprint_service;
 use crate::domains::tasks::model::TaskStatus;
+use crate::config::timeout;
 use crate::executor::claude_cli;
 use crate::github::GitHubClient;
 use crate::ws::WsHub;
@@ -97,7 +98,7 @@ async fn run_scan_inner(
         .and_then(|r| r.local_path.as_deref())
         .unwrap_or("/tmp");
 
-    let result = claude_cli::run_claude(&prompt, working_dir, 300)
+    let result = claude_cli::run_claude(&prompt, working_dir, timeout::SCAN_SECS)
         .await
         .map_err(|e| format!("Claude CLI error: {e}"))?;
 
@@ -221,7 +222,7 @@ async fn run_sprint_planning_inner(
     );
 
     let working_dir = "/tmp";
-    let result = claude_cli::run_claude(&prompt, working_dir, 180)
+    let result = claude_cli::run_claude(&prompt, working_dir, timeout::SPRINT_PLANNING_SECS)
         .await
         .map_err(|e| format!("Claude CLI error: {e}"))?;
 
@@ -467,7 +468,7 @@ async fn run_retrospective(
         task_results.join("\n"),
     );
 
-    let result = claude_cli::run_claude(&prompt, "/tmp", 120)
+    let result = claude_cli::run_claude(&prompt, "/tmp", timeout::RETROSPECTIVE_SECS)
         .await
         .map_err(|e| format!("Retrospective generation failed: {e}"))?;
 
@@ -667,6 +668,8 @@ fn build_scan_prompt(
 }}
 
 ルール:
+- **1タスク = 1PR**: タスクは1つのPRで完結する粒度にすること。複数PRが必要な規模のタスクは分割して提案する
+- 大きなリファクタリングや複数ファイルにまたがる変更も、論理的に独立した単位に分割する
 - ユーザーは Issue に簡単なバグ・改善を書いているので、それをタスク化する
 - 失敗パターンが繰り返されている場合、improvement タスクとして改善を提案
 - investigation は不明点の調査が必要な場合のみ

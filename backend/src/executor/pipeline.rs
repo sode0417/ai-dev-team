@@ -1,12 +1,63 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::config::timeout;
 use crate::domains::executions::service as exec_service;
 use crate::domains::tasks::model::{HearingQuestion, TaskStatus};
 use crate::domains::tasks::service as task_service;
 use crate::ws::WsHub;
 use super::claude_cli;
+use super::claude_cli::ClaudeResult;
 use super::worktree;
+
+/// タイムアウト時に1回だけリトライする run_claude ラッパー
+async fn run_claude_with_retry(
+    prompt: &str,
+    working_dir: &str,
+    timeout_secs: u64,
+) -> Result<ClaudeResult, String> {
+    match claude_cli::run_claude(prompt, working_dir, timeout_secs).await {
+        Ok(r) => Ok(r),
+        Err(e) if e.contains("timed out") => {
+            tracing::warn!("Claude timed out, retrying once: {e}");
+            claude_cli::run_claude(prompt, working_dir, timeout_secs).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// タイムアウト時に1回だけリトライする run_claude_autonomous ラッパー
+async fn run_claude_autonomous_with_retry(
+    prompt: &str,
+    working_dir: &str,
+    timeout_secs: u64,
+) -> Result<ClaudeResult, String> {
+    match claude_cli::run_claude_autonomous(prompt, working_dir, timeout_secs).await {
+        Ok(r) => Ok(r),
+        Err(e) if e.contains("timed out") => {
+            tracing::warn!("Claude autonomous timed out, retrying once: {e}");
+            claude_cli::run_claude_autonomous(prompt, working_dir, timeout_secs).await
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// タイムアウト時に1回だけリトライする run_claude_with_mcp ラッパー
+async fn run_claude_with_mcp_with_retry(
+    prompt: &str,
+    working_dir: &str,
+    timeout_secs: u64,
+    mcp_config_path: &str,
+) -> Result<ClaudeResult, String> {
+    match claude_cli::run_claude_with_mcp(prompt, working_dir, timeout_secs, mcp_config_path).await {
+        Ok(r) => Ok(r),
+        Err(e) if e.contains("timed out") => {
+            tracing::warn!("Claude MCP timed out, retrying once: {e}");
+            claude_cli::run_claude_with_mcp(prompt, working_dir, timeout_secs, mcp_config_path).await
+        }
+        Err(e) => Err(e),
+    }
+}
 
 /// 既存の一括実行パイプライン (skip_hearing=true 時に使用)
 pub async fn run_pipeline(
@@ -65,7 +116,7 @@ pub async fn run_pipeline(
         3. 計画のみ出力し、コード変更は行わないでください"
     );
 
-    let plan_result = match claude_cli::run_claude(&planner_prompt, &wt_path, 300).await {
+    let plan_result = match run_claude_with_retry(&planner_prompt, &wt_path, timeout::PLANNER_SECS).await {
         Ok(r) => r,
         Err(e) => {
             fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, &worktree_dir, &e).await;
@@ -162,7 +213,7 @@ pub async fn run_hearing_phase(
         6. 最大5問までにしてください"
     );
 
-    let result = match claude_cli::run_claude(&hearing_prompt, &wt_path, 300).await {
+    let result = match run_claude_with_retry(&hearing_prompt, &wt_path, timeout::HEARING_SECS).await {
         Ok(r) => r,
         Err(e) => {
             fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, &worktree_dir, &e).await;
@@ -299,7 +350,7 @@ pub async fn run_planning_phase(
         ),
     };
 
-    let plan_result = match claude_cli::run_claude(&planner_prompt, &wt_path, 300).await {
+    let plan_result = match run_claude_with_retry(&planner_prompt, &wt_path, timeout::PLANNER_SECS).await {
         Ok(r) => r,
         Err(e) => {
             let worktree_dir = std::path::PathBuf::from(&wt_path);
@@ -436,7 +487,7 @@ async fn run_coder_to_pr(
         - 変更は最小限に留めてください"
     );
 
-    let coder_result = match claude_cli::run_claude_autonomous(&coder_prompt, wt_path, 1500).await {
+    let coder_result = match run_claude_autonomous_with_retry(&coder_prompt, wt_path, timeout::CODER_SECS).await {
         Ok(r) => r,
         Err(e) => {
             fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &e).await;
@@ -472,7 +523,7 @@ async fn run_coder_to_pr(
                 - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
             );
 
-            let review = match claude_cli::run_claude(&reviewer_prompt, wt_path, 300).await {
+            let review = match run_claude_with_retry(&reviewer_prompt, wt_path, timeout::REVIEWER_SECS).await {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!("Reviewer failed: {e}");
@@ -494,7 +545,7 @@ async fn run_coder_to_pr(
                 "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
                 review.stdout
             );
-            let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
+            let _ = run_claude_autonomous_with_retry(&fix_prompt, wt_path, timeout::FIX_SECS).await;
         }
     } else {
         log(pool, session_id, "reviewer", 1, "info", "Reviewer スキップ (improvement タイプ)").await;
@@ -514,7 +565,7 @@ async fn run_coder_to_pr(
                 - テスト結果を確認\n\
                 - 最終行に必ず VERDICT: PASS または VERDICT: FAIL を出力";
 
-            let test = match claude_cli::run_claude_autonomous(test_prompt, wt_path, 300).await {
+            let test = match run_claude_autonomous_with_retry(test_prompt, wt_path, timeout::TEST_SECS).await {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!("Test failed: {e}");
@@ -537,7 +588,7 @@ async fn run_coder_to_pr(
                 "テストが失敗しました。以下のテスト出力に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
                 test.stdout
             );
-            let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
+            let _ = run_claude_autonomous_with_retry(&fix_prompt, wt_path, timeout::FIX_SECS).await;
         }
     } else {
         log(pool, session_id, "test", 1, "info", "Test スキップ (improvement タイプ)").await;
@@ -585,7 +636,7 @@ async fn run_coder_to_pr(
             for iteration in 1..=2 {
                 log(pool, session_id, "qa", iteration, "info", &format!("QA iteration {iteration}")).await;
 
-                let qa_result = match claude_cli::run_claude_with_mcp(&qa_prompt, wt_path, 600, &mcp_config_path).await {
+                let qa_result = match run_claude_with_mcp_with_retry(&qa_prompt, wt_path, timeout::QA_SECS, &mcp_config_path).await {
                     Ok(r) => r,
                     Err(e) => {
                         tracing::warn!("QA Agent failed: {e}");
@@ -617,7 +668,7 @@ async fn run_coder_to_pr(
                     "QA テストが失敗しました。以下の QA 結果に基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
                     qa_result.stdout
                 );
-                let _ = claude_cli::run_claude_autonomous(&fix_prompt, wt_path, 600).await;
+                let _ = run_claude_autonomous_with_retry(&fix_prompt, wt_path, timeout::FIX_SECS).await;
             }
         } else {
             log(pool, session_id, "qa", 1, "info", "QA スキップ — フロントエンド変更なし").await;
@@ -695,7 +746,7 @@ async fn run_investigation(
         - 発見事項、推奨事項、次のアクションを明確に記載してください"
     );
 
-    let result = match claude_cli::run_claude(&investigation_prompt, wt_path, 600).await {
+    let result = match run_claude_with_retry(&investigation_prompt, wt_path, timeout::INVESTIGATION_SECS).await {
         Ok(r) => r,
         Err(e) => {
             fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &e).await;
@@ -752,7 +803,7 @@ async fn run_operation(
         - コードの変更は行わないでください"
     );
 
-    let result = match claude_cli::run_claude_autonomous(&operation_prompt, wt_path, 600).await {
+    let result = match run_claude_autonomous_with_retry(&operation_prompt, wt_path, timeout::OPERATION_SECS).await {
         Ok(r) => r,
         Err(e) => {
             fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &e).await;

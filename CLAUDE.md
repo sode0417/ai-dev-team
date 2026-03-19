@@ -70,6 +70,13 @@ frontend/
 - Rust: f2a-backend と同じパターン (handler → service → DB)
 - Frontend: TypeScript strict, Tailwind CSS
 
+## タスク粒度ルール
+
+- **1タスク = 1PR**: 各タスクは1つのPRで完結する粒度にする
+- 複数PRが必要な規模のタスクは、事前に分割する
+- スキャン提案時・手動タスク作成時の両方でこのルールを適用
+- 背景: 3PR一括タスクが600sタイムアウトした反省（2026-03 Sprint）
+
 ## 環境変数
 
 - `DATABASE_URL` — PostgreSQL 接続文字列 (`postgres://ai_dev_team:...@localhost/ai_dev_team`)
