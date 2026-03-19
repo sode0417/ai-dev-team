@@ -344,7 +344,7 @@ async fn cancel_sprint(
     Ok(Json(json!({ "data": sprint })))
 }
 
-/// POST /api/sprints/{id}/feedback — ユーザーフィードバック → スプリント完了
+/// POST /api/sprints/{id}/feedback — ユーザーフィードバック → improving or completed
 async fn submit_feedback(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -358,7 +358,39 @@ async fn submit_feedback(
         ));
     }
 
-    let sprint = service::complete_with_feedback(&state.pool, sprint_id, &body.feedback).await?;
+    let sprint = service::start_improving(&state.pool, sprint_id, &body.feedback).await?;
+
+    // improving に遷移した場合、バックグラウンドで改善フェーズを実行
+    if SprintStatus::from_str(&sprint.status) == SprintStatus::Improving {
+        let pool = state.pool.clone();
+        let ws_hub = state.ws_hub.clone();
+        let github = state.github.clone();
+        let sid = sprint_id;
+
+        tokio::spawn(async move {
+            crate::scanner::analyzer::run_improving_phase(&pool, &ws_hub, &github, sid).await;
+        });
+        // Note: run_improving_phase handles all errors internally (saves to DB + broadcasts).
+        // Panics are logged by tokio's default panic hook.
+    }
+
+    Ok(Json(json!({ "data": sprint })))
+}
+
+/// POST /api/sprints/{id}/complete — improving フェーズ完了後にスプリント完了
+async fn complete_sprint(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(sprint_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let sprint = service::get_sprint(&state.pool, sprint_id).await?;
+    if SprintStatus::from_str(&sprint.status) != SprintStatus::Improving {
+        return Err(AppError::Validation(
+            "Sprint must be in 'improving' status to complete".to_string(),
+        ));
+    }
+
+    let sprint = service::complete_after_improving(&state.pool, sprint_id).await?;
 
     Ok(Json(json!({ "data": sprint })))
 }
@@ -381,4 +413,5 @@ pub fn sprint_routes() -> Router<AppState> {
         .route("/{id}/approve-plan", post(approve_plan))
         .route("/{id}/cancel", post(cancel_sprint))
         .route("/{id}/feedback", post(submit_feedback))
+        .route("/{id}/complete", post(complete_sprint))
 }

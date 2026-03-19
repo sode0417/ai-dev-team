@@ -7,7 +7,7 @@ use crate::domains::tasks::model::{Task, TaskStatus};
 
 const SPRINT_COLS: &str = "id, project_id, status, scan_analysis, priority_actions, \
     execution_plan, retrospective, improvement_suggestions, user_feedback, \
-    max_parallel_tasks, error_log, created_at, started_at, completed_at";
+    improvement_results, max_parallel_tasks, error_log, created_at, started_at, completed_at";
 
 const TASK_COLS: &str = "id, project_id, repository_id, title, description, status, priority, \
     depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
@@ -254,6 +254,78 @@ pub async fn complete_with_feedback(
     )
     .bind(sprint_id)
     .bind(feedback)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+/// フィードバック保存 → improving フェーズ開始（improvement_suggestions があれば）
+/// improvement_suggestions が空なら直接 completed に遷移
+pub async fn start_improving(
+    pool: &PgPool,
+    sprint_id: Uuid,
+    feedback: &str,
+) -> Result<Sprint, AppError> {
+    let sprint = get_sprint(pool, sprint_id).await?;
+
+    // improvement_suggestions が空かチェック
+    let has_suggestions = sprint
+        .improvement_suggestions
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .map(|arr| !arr.is_empty())
+        .unwrap_or(false);
+
+    if has_suggestions {
+        // improving に遷移
+        sqlx::query_as::<_, Sprint>(
+            &format!(
+                "UPDATE sprints SET status = 'improving', user_feedback = $2 \
+                 WHERE id = $1 RETURNING {SPRINT_COLS}"
+            ),
+        )
+        .bind(sprint_id)
+        .bind(feedback)
+        .fetch_one(pool)
+        .await
+        .map_err(AppError::from)
+    } else {
+        // 直接 completed に遷移
+        complete_with_feedback(pool, sprint_id, feedback).await
+    }
+}
+
+/// 改善結果を保存
+pub async fn save_improvement_results(
+    pool: &PgPool,
+    sprint_id: Uuid,
+    results: &serde_json::Value,
+) -> Result<Sprint, AppError> {
+    sqlx::query_as::<_, Sprint>(
+        &format!(
+            "UPDATE sprints SET improvement_results = $2 \
+             WHERE id = $1 RETURNING {SPRINT_COLS}"
+        ),
+    )
+    .bind(sprint_id)
+    .bind(results)
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::from)
+}
+
+/// 改善完了 → スプリント完了
+pub async fn complete_after_improving(
+    pool: &PgPool,
+    sprint_id: Uuid,
+) -> Result<Sprint, AppError> {
+    sqlx::query_as::<_, Sprint>(
+        &format!(
+            "UPDATE sprints SET status = 'completed', completed_at = NOW() \
+             WHERE id = $1 RETURNING {SPRINT_COLS}"
+        ),
+    )
+    .bind(sprint_id)
     .fetch_one(pool)
     .await
     .map_err(AppError::from)

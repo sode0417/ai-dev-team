@@ -127,6 +127,15 @@ export interface ImprovementSuggestion {
   reason: string;
 }
 
+export interface ImprovementResultItem {
+  target: string;
+  description: string;
+  status: "applied" | "failed" | "skipped";
+  pr_url: string | null;
+  issue_url: string | null;
+  error: string | null;
+}
+
 export interface ScanResult extends ScanSession {
   tasks: Task[];
 }
@@ -143,6 +152,7 @@ export type SprintStatus =
   | "planning"
   | "executing"
   | "retrospective"
+  | "improving"
   | "completed"
   | "failed";
 
@@ -156,6 +166,7 @@ export interface Sprint {
   retrospective: string | null;
   improvement_suggestions: ImprovementSuggestion[] | null;
   user_feedback: string | null;
+  improvement_results: ImprovementResultItem[] | null;
   max_parallel_tasks: number;
   error_log: string | null;
   created_at: string;

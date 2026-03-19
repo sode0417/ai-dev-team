@@ -11,6 +11,7 @@ pub enum SprintStatus {
     Planning,
     Executing,
     Retrospective,
+    Improving,
     Completed,
     Failed,
 }
@@ -23,6 +24,7 @@ impl SprintStatus {
             Self::Planning => "planning",
             Self::Executing => "executing",
             Self::Retrospective => "retrospective",
+            Self::Improving => "improving",
             Self::Completed => "completed",
             Self::Failed => "failed",
         }
@@ -35,6 +37,7 @@ impl SprintStatus {
             "planning" => Self::Planning,
             "executing" => Self::Executing,
             "retrospective" => Self::Retrospective,
+            "improving" => Self::Improving,
             "completed" => Self::Completed,
             "failed" => Self::Failed,
             _ => Self::Selecting,
@@ -53,6 +56,7 @@ pub struct Sprint {
     pub retrospective: Option<String>,
     pub improvement_suggestions: Option<Value>,
     pub user_feedback: Option<String>,
+    pub improvement_results: Option<Value>,
     pub max_parallel_tasks: i32,
     pub error_log: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -78,6 +82,17 @@ pub struct ApprovePlanRequest {
 #[derive(Debug, Deserialize)]
 pub struct SprintFeedbackRequest {
     pub feedback: String,
+}
+
+/// 改善適用結果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImprovementResult {
+    pub target: String,
+    pub description: String,
+    pub status: String,
+    pub pr_url: Option<String>,
+    pub issue_url: Option<String>,
+    pub error: Option<String>,
 }
 
 /// タスク選定リクエスト (採用/却下)
