@@ -9,6 +9,7 @@ pub struct Config {
     pub jwt_secret: String,
     pub jwt_access_expiry_secs: i64,
     pub jwt_refresh_expiry_days: i64,
+    pub allowed_origins: Vec<String>,
 }
 
 impl Config {
@@ -16,6 +17,15 @@ impl Config {
         let auth_enabled = env::var("AUTH_ENABLED")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
+
+        let allowed_origins = env::var("ALLOWED_ORIGINS")
+            .map(|s| {
+                s.split(',')
+                    .map(|o| o.trim().to_string())
+                    .filter(|o| !o.is_empty())
+                    .collect()
+            })
+            .unwrap_or_else(|_| vec!["http://localhost:3100".to_string()]);
 
         Self {
             database_url: env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
@@ -38,6 +48,7 @@ impl Config {
                 .unwrap_or_else(|_| "7".to_string())
                 .parse()
                 .expect("JWT_REFRESH_EXPIRY_DAYS must be a valid i64"),
+            allowed_origins,
         }
     }
 }

@@ -192,6 +192,18 @@ export function SprintPanel({
               setLoading(false);
             }
           }}
+          onRetryPlan={async () => {
+            setLoading(true);
+            setError(null);
+            try {
+              await createSprintPlan(sprintId);
+              loadSprint();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Failed");
+            } finally {
+              setLoading(false);
+            }
+          }}
         />
       )}
 
@@ -482,18 +494,39 @@ function PlanningPhase({
   sprint,
   loading,
   onApprove,
+  onRetryPlan,
 }: {
   sprint: SprintWithTasks;
   loading: boolean;
   onApprove: (maxParallel: number) => void;
+  onRetryPlan: () => void;
 }) {
   const [maxParallel, setMaxParallel] = useState(3);
 
   if (!sprint.execution_plan) {
+    // 作成から2分以上経過していたらリトライボタンを表示
+    const createdAt = new Date(sprint.created_at).getTime();
+    const elapsed = Date.now() - createdAt;
+    const stale = elapsed > 2 * 60 * 1000;
+
     return (
-      <div className="flex items-center gap-3 p-4 rounded-lg border border-gh-border bg-gh-surface">
-        <div className="w-5 h-5 border-2 border-gh-purple border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-gh-text-secondary">PM Agent が実行計画を作成中...</p>
+      <div className="p-4 rounded-lg border border-gh-border bg-gh-surface space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-5 h-5 border-2 border-gh-purple border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gh-text-secondary">PM Agent が実行計画を作成中...</p>
+        </div>
+        {stale && (
+          <div className="flex items-center justify-between p-3 rounded-md border border-gh-orange/30 bg-gh-orange/5">
+            <p className="text-xs text-gh-orange">計画生成が長時間停止している可能性があります</p>
+            <button
+              onClick={onRetryPlan}
+              disabled={loading}
+              className="px-3 py-1.5 bg-gh-orange/90 text-white rounded-md hover:bg-gh-orange transition text-xs font-medium disabled:opacity-50"
+            >
+              {loading ? "再実行中..." : "計画を再実行"}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

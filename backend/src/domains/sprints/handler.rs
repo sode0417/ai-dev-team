@@ -1,5 +1,6 @@
 use axum::extract::{Path, State};
 use axum::{Json, Router, routing::{get, post}};
+use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -9,6 +10,11 @@ use crate::error::AppError;
 use crate::response::SuccessResponse;
 use super::model::*;
 use super::service;
+
+#[derive(Debug, Deserialize)]
+struct ApprovePlanRequest {
+    max_parallel_tasks: Option<i32>,
+}
 
 /// POST /api/projects/{id}/sprints — スプリント作成 + スキャン開始
 async fn create_sprint(
@@ -239,21 +245,30 @@ async fn create_plan(
     Path(sprint_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
-    if SprintStatus::from_str(&sprint.status) != SprintStatus::Hearing {
+    let status = SprintStatus::from_str(&sprint.status);
+
+    // hearing → planning 初回、planning → planning リトライ（計画未生成時）
+    if status == SprintStatus::Hearing {
+        let all_ready = service::all_tasks_ready(&state.pool, sprint_id).await?;
+        if !all_ready {
+            return Err(AppError::Validation(
+                "Not all tasks have completed hearing".to_string(),
+            ));
+        }
+        // planning に遷移
+        service::update_status(&state.pool, sprint_id, "planning").await?;
+    } else if status == SprintStatus::Planning {
+        // planning リトライ: execution_plan が未生成の場合のみ許可
+        if sprint.execution_plan.is_some() {
+            return Err(AppError::Validation(
+                "Plan already exists. Use approve-plan to proceed.".to_string(),
+            ));
+        }
+    } else {
         return Err(AppError::Validation(
-            "Sprint must be in 'hearing' status to plan".to_string(),
+            "Sprint must be in 'hearing' or 'planning' status to plan".to_string(),
         ));
     }
-
-    let all_ready = service::all_tasks_ready(&state.pool, sprint_id).await?;
-    if !all_ready {
-        return Err(AppError::Validation(
-            "Not all tasks have completed hearing".to_string(),
-        ));
-    }
-
-    // planning に遷移
-    let sprint = service::update_status(&state.pool, sprint_id, "planning").await?;
 
     // バックグラウンドで実行計画を作成
     let pool = state.pool.clone();
