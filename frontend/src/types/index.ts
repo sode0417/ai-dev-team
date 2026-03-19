@@ -180,7 +180,6 @@ export interface Sprint {
 
 export interface SprintWithTasks extends Sprint {
   tasks: Task[];
-  max_parallel_tasks: number | null;
 }
 
 export interface SprintWsMessage {

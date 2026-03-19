@@ -95,12 +95,6 @@ pub struct ImprovementResult {
     pub error: Option<String>,
 }
 
-/// 実行計画承認リクエスト
-#[derive(Debug, Deserialize)]
-pub struct ApprovePlanRequest {
-    pub max_parallel_tasks: Option<i32>,
-}
-
 /// タスク選定リクエスト (採用/却下)
 #[derive(Debug, Deserialize)]
 pub struct SelectTasksRequest {

@@ -11,11 +11,6 @@ use crate::response::SuccessResponse;
 use super::model::*;
 use super::service;
 
-#[derive(Debug, Deserialize)]
-struct ApprovePlanRequest {
-    max_parallel_tasks: Option<i32>,
-}
-
 /// POST /api/projects/{id}/sprints — スプリント作成 + スキャン開始
 async fn create_sprint(
     State(state): State<AppState>,
@@ -286,6 +281,7 @@ async fn approve_plan(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(sprint_id): Path<Uuid>,
+    Json(body): Json<ApprovePlanRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
     if SprintStatus::from_str(&sprint.status) != SprintStatus::Planning {
@@ -296,7 +292,8 @@ async fn approve_plan(
 
     // executing に遷移（execution_plan は planning フェーズで既に設定済み）
     let plan = sprint.execution_plan.clone().unwrap_or_default();
-    let sprint = service::approve_plan(&state.pool, sprint_id, &plan).await?;
+    let max_parallel = body.max_parallel_tasks.unwrap_or(sprint.max_parallel_tasks);
+    let sprint = service::approve_plan(&state.pool, sprint_id, &plan, max_parallel).await?;
 
     // バックグラウンドでスプリント実行
     let pool = state.pool.clone();

@@ -94,8 +94,11 @@ psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317100000_hearing_
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317200000_sprints.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260318000000_qa_phase.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319000000_execution_groups.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319100000_issue_fields.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319100000_users.sql
-psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320000000_auto_merge.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320000000_improving_phase.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320000000_revision_flow.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320100000_auto_merge.sql
 
 # 認証セットアップ（任意）
 # 1. .env に AUTH_ENABLED=true と JWT_SECRET を設定
