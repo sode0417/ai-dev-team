@@ -95,6 +95,42 @@ impl GitHubClient {
         req
     }
 
+    fn post_request(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self
+            .client
+            .post(url)
+            .header("Accept", "application/vnd.github.v3+json");
+        if let Some(ref token) = self.token {
+            req = req.bearer_auth(token);
+        }
+        req
+    }
+
+    pub async fn create_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: &str,
+        labels: &[&str],
+    ) -> Result<GitHubIssue, AppError> {
+        let url = format!("https://api.github.com/repos/{owner}/{repo}/issues");
+        let payload = serde_json::json!({
+            "title": title,
+            "body": body,
+            "labels": labels,
+        });
+        let issue: GitHubIssue = self
+            .post_request(&url)
+            .json(&payload)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        Ok(issue)
+    }
+
     pub async fn fetch_issue(
         &self,
         owner: &str,

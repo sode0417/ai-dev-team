@@ -284,6 +284,13 @@ export function submitSprintFeedback(sprintId: string, feedback: string) {
   );
 }
 
+export function completeSprint(sprintId: string) {
+  return request<{ data: import("@/types").Sprint }>(
+    `/api/sprints/${sprintId}/complete`,
+    { method: "POST" }
+  );
+}
+
 // Executions
 export function fetchExecutions(taskId: string) {
   return request<{ data: import("@/types").ExecutionSession[] }>(

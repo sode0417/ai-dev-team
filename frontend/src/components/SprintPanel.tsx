@@ -10,11 +10,12 @@ import {
   createSprintPlan,
   approveSprintPlan,
   submitSprintFeedback,
+  completeSprint,
   cancelSprint,
   requestRevision,
 } from "@/lib/api";
 import { connectSprintWs } from "@/lib/ws";
-import type { SprintWithTasks, Task, SprintWsMessage } from "@/types";
+import type { SprintWithTasks, Task, SprintWsMessage, ImprovementResultItem } from "@/types";
 import { StatusBadge } from "./StatusBadge";
 import { PriorityBadge } from "./PriorityBadge";
 import { Markdown } from "./Markdown";
@@ -25,6 +26,7 @@ const PHASE_LABELS: Record<string, { label: string; color: string }> = {
   planning: { label: "実行計画", color: "bg-gh-purple" },
   executing: { label: "実行中", color: "bg-gh-green" },
   retrospective: { label: "振り返り", color: "bg-gh-blue" },
+  improving: { label: "改善実施", color: "bg-gh-orange" },
   completed: { label: "完了", color: "bg-gh-text-muted" },
   failed: { label: "失敗", color: "bg-gh-red" },
 };
@@ -68,7 +70,8 @@ export function SprintPanel({
       (msg) => {
         setWsMessages((prev) => [...prev, msg]);
         // フェーズ変更時にリロード
-        if (["completed", "plan_ready", "retrospective", "error", "task_done", "generating_retro"].includes(msg.phase)) {
+        // "improving" はリアルタイム進捗表示用（WsMessages に蓄積）、"improving_done" で完了リロード
+        if (["completed", "plan_ready", "retrospective", "improving_done", "error", "task_done", "generating_retro"].includes(msg.phase)) {
           loadSprint();
           onRefresh?.();
         }
@@ -81,7 +84,7 @@ export function SprintPanel({
   // 5秒ポーリング (hearing/executing 時)
   useEffect(() => {
     if (!sprint) return;
-    if (!["hearing", "executing", "planning"].includes(sprint.status)) return;
+    if (!["hearing", "executing", "planning", "improving"].includes(sprint.status)) return;
     const id = setInterval(loadSprint, 5000);
     return () => clearInterval(id);
   }, [sprint?.status, loadSprint]);
@@ -100,7 +103,7 @@ export function SprintPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`w-2.5 h-2.5 rounded-full ${phase.color} ${
-            ["hearing", "executing", "planning"].includes(sprint.status) ? "animate-pulse" : ""
+            ["hearing", "executing", "planning", "improving"].includes(sprint.status) ? "animate-pulse" : ""
           }`} />
           <span className="text-sm font-semibold text-gh-text">{phase.label}</span>
           <span className="text-xs text-gh-text-muted">
@@ -243,6 +246,26 @@ export function SprintPanel({
         />
       )}
 
+      {sprint.status === "improving" && (
+        <ImprovingPhase
+          sprint={sprint}
+          loading={loading}
+          wsMessages={wsMessages}
+          onComplete={async () => {
+            setLoading(true);
+            try {
+              await completeSprint(sprintId);
+              loadSprint();
+              onRefresh?.();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : "Failed");
+            } finally {
+              setLoading(false);
+            }
+          }}
+        />
+      )}
+
       {sprint.status === "completed" && (
         <CompletedPhase sprint={sprint} onRevision={handleRevision} />
       )}
@@ -263,7 +286,7 @@ export function SprintPanel({
 
 /* ─── Phase Timeline ─── */
 
-const PHASES = ["selecting", "hearing", "planning", "executing", "retrospective", "completed"];
+const PHASES = ["selecting", "hearing", "planning", "executing", "retrospective", "improving", "completed"];
 
 function PhaseTimeline({ status }: { status: string }) {
   const currentIdx = PHASES.indexOf(status);
@@ -865,9 +888,129 @@ function RetrospectivePhase({
           disabled={loading || !feedback.trim()}
           className="mt-2 px-4 py-2 bg-gh-blue/90 text-white rounded-md hover:bg-gh-blue transition text-sm font-medium disabled:opacity-50"
         >
-          {loading ? "送信中..." : "送信してスプリント完了"}
+          {loading ? "送信中..." : "フィードバック送信"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ─── Improving Phase ─── */
+
+function ImprovingPhase({
+  sprint,
+  loading,
+  wsMessages,
+  onComplete,
+}: {
+  sprint: SprintWithTasks;
+  loading: boolean;
+  wsMessages: SprintWsMessage[];
+  onComplete: () => void;
+}) {
+  const results: ImprovementResultItem[] | null = sprint.improvement_results;
+  const isProcessing = !results || results.length === 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Processing indicator */}
+      {isProcessing && (
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-gh-border bg-gh-surface">
+          <div className="w-5 h-5 border-2 border-gh-orange border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm text-gh-text-secondary">改善を実施中...</p>
+        </div>
+      )}
+
+      {/* Live messages */}
+      {wsMessages.filter((m) => m.phase === "improving" || m.phase === "improving_done").length > 0 && (
+        <div className="p-3 rounded-lg border border-gh-border bg-gh-surface max-h-48 overflow-y-auto">
+          {wsMessages
+            .filter((m) => m.phase === "improving" || m.phase === "improving_done")
+            .map((msg, i) => (
+              <div key={i} className="text-xs text-gh-text-secondary py-0.5">
+                <span className="text-gh-text-muted">[{msg.phase}]</span> {msg.message}
+              </div>
+            ))}
+        </div>
+      )}
+
+      {/* Results */}
+      {results && results.length > 0 && (
+        <div className="rounded-lg border border-gh-border overflow-hidden">
+          <div className="px-4 py-2.5 bg-gh-surface border-b border-gh-border">
+            <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
+              改善結果
+            </h4>
+          </div>
+          {results.map((result, i) => {
+            const statusIcon =
+              result.status === "applied" ? "\u2705" : result.status === "failed" ? "\u274c" : "\u23ed\ufe0f";
+            return (
+              <div
+                key={i}
+                className="px-4 py-3 border-b border-gh-border last:border-0"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="text-sm shrink-0">{statusIcon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-gh-blue/10 text-gh-blue font-medium">
+                        {result.target}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        result.status === "applied"
+                          ? "bg-gh-green/15 text-gh-green"
+                          : result.status === "failed"
+                          ? "bg-gh-red/15 text-gh-red"
+                          : "bg-gh-text-muted/15 text-gh-text-muted"
+                      }`}>
+                        {result.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gh-text">{result.description}</p>
+                    <div className="flex gap-3 mt-1">
+                      {result.pr_url && (
+                        <a
+                          href={result.pr_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gh-link hover:underline"
+                        >
+                          PR
+                        </a>
+                      )}
+                      {result.issue_url && (
+                        <a
+                          href={result.issue_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-gh-link hover:underline"
+                        >
+                          Issue
+                        </a>
+                      )}
+                    </div>
+                    {result.error && (
+                      <p className="text-xs text-gh-red mt-1">{result.error}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Complete button */}
+      {results && results.length > 0 && (
+        <button
+          onClick={onComplete}
+          disabled={loading}
+          className="px-4 py-2 bg-gh-green/90 text-white rounded-md hover:bg-gh-green transition text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "完了処理中..." : "確認してスプリント完了"}
+        </button>
+      )}
     </div>
   );
 }
