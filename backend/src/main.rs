@@ -67,7 +67,7 @@ async fn dashboard(State(state): State<AppState>) -> Result<Json<Value>, error::
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
          retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-         scan_id, proposal_type, sprint_id \
+         scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at \
          FROM tasks ORDER BY updated_at DESC LIMIT 10",
     )
     .fetch_all(&state.pool)
@@ -106,6 +106,46 @@ async fn ws_handler(
     }
 
     Ok(ws.on_upgrade(move |socket| handle_ws(socket, state, id)))
+}
+
+async fn ws_notifications_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Query(query): Query<WsQuery>,
+) -> Result<impl IntoResponse, error::AppError> {
+    if state.config.auth_enabled {
+        let token = query
+            .token
+            .ok_or_else(|| error::AppError::Unauthorized("Missing token parameter".to_string()))?;
+        auth::decode_token(&token, &state.config.jwt_secret)?;
+    }
+
+    Ok(ws.on_upgrade(move |socket| handle_ws_notifications(socket, state)))
+}
+
+async fn handle_ws_notifications(mut socket: WebSocket, state: AppState) {
+    let mut rx = state.ws_hub.subscribe_global();
+
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                match msg {
+                    Ok(text) => {
+                        if socket.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 async fn handle_ws(mut socket: WebSocket, state: AppState, id: Uuid) {
@@ -196,6 +236,15 @@ async fn main() {
         });
     }
 
+    // 自動マージループ起動
+    {
+        let merge_pool = state.pool.clone();
+        let merge_ws = state.ws_hub.clone();
+        tokio::spawn(async move {
+            executor::merger::start_auto_merge_loop(merge_pool, merge_ws).await;
+        });
+    }
+
     let app = Router::new()
         // 認証不要ルート
         .route("/api/health", axum::routing::get(health_check))
@@ -218,6 +267,7 @@ async fn main() {
         .route("/ws/executions/{task_id}", axum::routing::get(ws_handler))
         .route("/ws/scans/{scan_id}", axum::routing::get(ws_handler))
         .route("/ws/sprints/{sprint_id}", axum::routing::get(ws_handler))
+        .route("/ws/notifications", axum::routing::get(ws_notifications_handler))
         .layer(TraceLayer::new_for_http())
         .layer(cors_layer())
         .with_state(state);

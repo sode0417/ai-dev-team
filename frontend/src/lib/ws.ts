@@ -1,4 +1,4 @@
-import type { WsMessage, ScanWsMessage, SprintWsMessage } from "@/types";
+import type { WsMessage, ScanWsMessage, SprintWsMessage, MergeEvent } from "@/types";
 import { getAccessToken } from "./auth";
 
 function getWsBase(): string {
@@ -82,6 +82,30 @@ export function connectSprintWs(
       onMessage(data);
     } catch {
       console.warn("Invalid WS message:", event.data);
+    }
+  };
+
+  ws.onclose = () => {
+    onClose?.();
+  };
+
+  return ws;
+}
+
+export function connectNotificationWs(
+  onMessage: (msg: MergeEvent) => void,
+  onClose?: () => void
+): WebSocket {
+  const ws = new WebSocket(buildWsUrl("/ws/notifications"));
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data) as MergeEvent;
+      if (data.type === "merge_event") {
+        onMessage(data);
+      }
+    } catch {
+      console.warn("Invalid notification WS message:", event.data);
     }
   };
 
