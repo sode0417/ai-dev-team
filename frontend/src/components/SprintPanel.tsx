@@ -768,10 +768,13 @@ function ExecutingPhase({
                 </Link>
                 <RevisionBadge count={task.revision_count} />
                 {task.pr_url && (
-                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-gh-link hover:underline shrink-0">
-                    PR
-                  </a>
+                  <>
+                    <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-gh-link hover:underline shrink-0">
+                      PR
+                    </a>
+                    <MergeStatusBadge status={task.merge_status} />
+                  </>
                 )}
               </div>
             ))}
@@ -892,6 +895,27 @@ function RetrospectivePhase({
         </button>
       </div>
     </div>
+  );
+}
+
+/* ─── Merge Status Badge ─── */
+
+const MERGE_STATUS_STYLES: Record<string, { color: string; label: string }> = {
+  pending: { color: "bg-gh-text-muted/20 text-gh-text-muted", label: "待機中" },
+  merged: { color: "bg-gh-green/15 text-gh-green", label: "マージ済" },
+  conflict: { color: "bg-gh-orange/15 text-gh-orange", label: "コンフリクト解消中" },
+  failed: { color: "bg-gh-red/15 text-gh-red", label: "マージ失敗" },
+};
+
+function MergeStatusBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  const style = MERGE_STATUS_STYLES[status];
+  if (!style) return null;
+
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${style.color}`}>
+      {style.label}
+    </span>
   );
 }
 
@@ -1064,10 +1088,13 @@ function CompletedPhase({
                 </Link>
                 <RevisionBadge count={task.revision_count} />
                 {task.pr_url && (
-                  <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs text-gh-link hover:underline shrink-0">
-                    PR
-                  </a>
+                  <>
+                    <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-gh-link hover:underline shrink-0">
+                      PR
+                    </a>
+                    <MergeStatusBadge status={task.merge_status} />
+                  </>
                 )}
                 <RevisionButton task={task} onRevision={onRevision} />
               </div>

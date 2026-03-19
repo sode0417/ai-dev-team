@@ -54,6 +54,7 @@ backend/
 │   │   └── analyzer.rs      # PM Agent スキャン + スプリント計画・実行
 │   └── executor/
 │       ├── pipeline.rs      # Planner→Coder→Reviewer→Test パイプライン
+│       ├── merger.rs        # 自動マージ + コンフリクト修復
 │       ├── worktree.rs      # git worktree 管理
 │       └── claude_cli.rs    # claude CLI ラッパー
 
@@ -94,6 +95,7 @@ psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260317200000_sprints.
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260318000000_qa_phase.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319000000_execution_groups.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260319100000_users.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320000000_auto_merge.sql
 
 # 認証セットアップ（任意）
 # 1. .env に AUTH_ENABLED=true と JWT_SECRET を設定

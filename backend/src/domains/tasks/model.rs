@@ -60,7 +60,19 @@ pub struct Task {
     pub sprint_id: Option<Uuid>,
     pub issue_number: Option<i32>,
     pub issue_url: Option<String>,
+    pub merge_status: Option<String>,
+    pub merge_attempted_at: Option<DateTime<Utc>>,
     pub revision_count: i32,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct MergeLog {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub action: String,
+    pub success: bool,
+    pub message: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]

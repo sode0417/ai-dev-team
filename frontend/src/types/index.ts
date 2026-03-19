@@ -61,7 +61,8 @@ export interface Task {
   sprint_id: string | null;
   issue_number: number | null;
   issue_url: string | null;
-  execution_group: number | null;
+  merge_status: "pending" | "merged" | "conflict" | "failed" | null;
+  merge_attempted_at: string | null;
   revision_count: number;
 }
 
@@ -251,6 +252,15 @@ export interface GitHubPullRequest {
   updated_at: string;
   head: { ref: string };
   base: { ref: string };
+}
+
+// Merge events
+export interface MergeEvent {
+  type: "merge_event";
+  task_id: string;
+  task_title: string;
+  event: "merged" | "conflict_resolved" | "conflict" | "failed";
+  message: string;
 }
 
 // Auth
