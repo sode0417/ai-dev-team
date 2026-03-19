@@ -1,2 +1,0 @@
-[   27730ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/4759572b-9285-4806-b7d9-fad0e059464d' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:995
-[  115211ms] [WARNING] WebSocket connection to 'ws://localhost:8100/ws/sprints/4759572b-9285-4806-b7d9-fad0e059464d' failed: WebSocket is closed before the connection is established. @ http://localhost:3199/_next/static/chunks/src_ff379e16._.js:995
