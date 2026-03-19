@@ -61,6 +61,7 @@ export interface Task {
   sprint_id: string | null;
   issue_number: number | null;
   issue_url: string | null;
+  execution_group: number | null;
 }
 
 export interface ExecutionSession {
@@ -165,6 +166,7 @@ export interface Sprint {
 
 export interface SprintWithTasks extends Sprint {
   tasks: Task[];
+  max_parallel_tasks: number | null;
 }
 
 export interface SprintWsMessage {

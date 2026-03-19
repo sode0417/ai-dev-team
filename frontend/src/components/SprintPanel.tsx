@@ -503,7 +503,8 @@ function PlanningPhase({
   sprint.tasks
     .filter((t) => t.status !== "cancelled" && t.status !== "proposed")
     .forEach((t) => {
-      groupCounts[t.execution_group] = (groupCounts[t.execution_group] || 0) + 1;
+      const group = t.execution_group ?? 0;
+      groupCounts[group] = (groupCounts[group] || 0) + 1;
     });
   const groupEntries = Object.entries(groupCounts)
     .map(([g, c]) => ({ group: Number(g), count: c }))
@@ -580,7 +581,7 @@ function ExecutingPhase({
   // グループごとにタスクを分類
   const groups: Record<number, Task[]> = {};
   activeTasks.forEach((t) => {
-    const g = t.execution_group;
+    const g = t.execution_group ?? 0;
     if (!groups[g]) groups[g] = [];
     groups[g].push(t);
   });
@@ -598,7 +599,7 @@ function ExecutingPhase({
           <h4 className="text-xs font-semibold text-gh-text-secondary uppercase">
             実行進捗
           </h4>
-          {sprint.max_parallel_tasks > 1 && (
+          {(sprint.max_parallel_tasks ?? 0) > 1 && (
             <span className="text-[10px] text-gh-text-muted">
               最大 {sprint.max_parallel_tasks} 並列
             </span>
