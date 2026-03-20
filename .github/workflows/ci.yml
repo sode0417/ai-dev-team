@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
 jobs:
   backend:
@@ -82,3 +84,15 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  deploy:
+    name: Deploy
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, deploy]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy
+        run: ./scripts/deploy.sh

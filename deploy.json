@@ -1,0 +1,23 @@
+{
+  "services": [
+    {
+      "name": "backend",
+      "type": "rust",
+      "dir": "backend",
+      "port": 8100,
+      "build_cmd": "cargo build --release",
+      "binary": "target/release/ai-dev-team",
+      "log_file": "~/Library/Logs/ai-dev-team-backend.log",
+      "error_log": "~/Library/Logs/ai-dev-team-backend.error.log",
+      "migrations_dir": "backend/migrations"
+    },
+    {
+      "name": "frontend",
+      "type": "nextjs",
+      "dir": "frontend",
+      "port": 3100,
+      "build_cmd": "npm run build",
+      "start_cmd": "npm exec next start -- -p 3100"
+    }
+  ]
+}
