@@ -84,6 +84,7 @@ frontend/
 - `PORT` — Backend ポート (デフォルト: 8100)
 - `AUTH_ENABLED` — 認証有効化 (`true`/`false`, デフォルト: `false`)
 - `JWT_SECRET` — JWT 署名鍵（AUTH_ENABLED=true 時は必須）
+- `ALLOWED_ORIGINS` — CORS 許可オリジン（カンマ区切り、デフォルト: `http://localhost:3100`）
 
 ## 開発
 
@@ -113,6 +114,13 @@ psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260321000000_definiti
 # 2. 初期ユーザー作成:
 cargo run --bin seed_user -- <username> <password>
 ```
+
+## デプロイ
+
+- main push 時に GitHub Actions (self-hosted runner) で自動デプロイ
+- `deploy.json`: サービス定義、`scripts/deploy.sh`: ビルド・マイグレーション・再起動
+- マイグレーション: `migration_history` テーブルで適用済み管理（未適用分のみ自動実行）
+- 詳細: `docs/deploy-setup.md`
 
 ## フェーズ
 
