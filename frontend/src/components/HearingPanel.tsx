@@ -104,8 +104,8 @@ function HearingForm({
             <label className="block text-sm font-medium text-gh-text mb-1.5">
               Q{q.index}: {q.question}
             </label>
-            {q.options && q.options.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+            {q.options && q.options.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
                 {q.options.map((opt) => (
                   <button
                     key={opt}
@@ -121,15 +121,24 @@ function HearingForm({
                   </button>
                 ))}
               </div>
-            ) : (
+            )}
+            <div>
               <textarea
                 value={answers[q.index] || ""}
-                onChange={(e) => updateAnswer(q.index, e.target.value)}
+                onChange={(e) => {
+                  if (e.target.value.length <= 1000) {
+                    updateAnswer(q.index, e.target.value);
+                  }
+                }}
+                maxLength={1000}
                 rows={2}
                 className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-blue focus:ring-1 focus:ring-gh-blue/40 resize-none"
-                placeholder="回答を入力..."
+                placeholder={q.options && q.options.length > 0 ? "選択肢をクリックするか、自由に入力..." : "回答を入力..."}
               />
-            )}
+              <div className="text-right text-xs text-gh-text-muted mt-0.5">
+                {answers[q.index]?.length || 0}/1000
+              </div>
+            </div>
           </div>
         ))}
       </div>
