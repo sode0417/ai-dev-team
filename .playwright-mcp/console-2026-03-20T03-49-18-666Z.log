@@ -1,0 +1,5 @@
+[     740ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: HTTP Authentication failed; no valid credentials available @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1100
+[     813ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: HTTP Authentication failed; no valid credentials available @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1100
+[    5835ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: HTTP Authentication failed; no valid credentials available @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1100
+[   10845ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: HTTP Authentication failed; no valid credentials available @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1100
+[   15853ms] [ERROR] WebSocket connection to 'ws://localhost:8100/ws/notifications' failed: HTTP Authentication failed; no valid credentials available @ http://localhost:3199/_next/static/chunks/_486ed77a._.js:1100
