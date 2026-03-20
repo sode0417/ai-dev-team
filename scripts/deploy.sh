@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="${DEPLOY_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 DEPLOY_CONFIG="$REPO_ROOT/deploy.json"
 TARGET_SERVICE="${1:-}"
 
