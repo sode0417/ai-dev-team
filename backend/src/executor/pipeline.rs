@@ -10,6 +10,16 @@ use super::claude_cli;
 use super::claude_cli::ClaudeResult;
 use super::worktree;
 
+/// DoD セクションを構築（プロンプト注入用）
+fn build_dod_section(definition_of_done: &Option<String>) -> String {
+    match definition_of_done {
+        Some(dod) if !dod.trim().is_empty() => {
+            format!("## 完了条件 (Definition of Done)\n{dod}\n\n")
+        }
+        _ => String::new(),
+    }
+}
+
 /// タイムアウト時に1回だけリトライする run_claude ラッパー
 async fn run_claude_with_retry(
     prompt: &str,
@@ -102,18 +112,25 @@ pub async fn run_pipeline(
     broadcast(ws_hub, task_id, "planning", "Planner Agent 起動中...").await;
     log(pool, session_id, "planner", 1, "info", "Planner Agent 開始").await;
 
+    // DoD 取得
+    let dod = task_service::get_task(pool, task_id).await.ok()
+        .and_then(|t| t.definition_of_done);
+    let dod_section = build_dod_section(&dod);
+
     let planner_prompt = format!(
         "あなたは Planner Agent です。以下のタスクの実装計画を立ててください。\n\n\
         ## タスク\n\
         タイトル: {title}\n\
         説明: {description}\n\n\
+        {dod_section}\
         ## 指示\n\
         1. コードベースを分析して、変更が必要なファイルを特定してください\n\
         2. 実装計画を以下の形式で出力してください:\n\
            - 変更ファイル一覧\n\
            - 各ファイルの変更内容\n\
            - テスト方針\n\
-        3. 計画のみ出力し、コード変更は行わないでください"
+        3. 計画のみ出力し、コード変更は行わないでください\n\
+        4. 完了条件がある場合は、すべての条件を満たす計画にしてください"
     );
 
     let plan_result = match run_claude_with_retry(&planner_prompt, &wt_path, timeout::PLANNER_SECS).await {
@@ -290,6 +307,11 @@ pub async fn run_planning_phase(
         format!("## ヒアリング回答\n{hearing_context}\n")
     };
 
+    // DoD 取得
+    let dod = task_service::get_task(pool, task_id).await.ok()
+        .and_then(|t| t.definition_of_done);
+    let dod_section = build_dod_section(&dod);
+
     let planner_prompt = match proposal_type {
         "investigation" => format!(
             "あなたは Planner Agent です。以下の調査タスクの調査計画を立ててください。\n\n\
@@ -297,6 +319,7 @@ pub async fn run_planning_phase(
             タイトル: {title}\n\
             説明: {description}\n\n\
             {hearing_section}\
+            {dod_section}\
             ## 指示\n\
             1. コードベースを分析して、調査対象のファイルや領域を特定してください\n\
             2. 調査計画を以下の形式で出力してください:\n\
@@ -316,6 +339,7 @@ pub async fn run_planning_phase(
             タイトル: {title}\n\
             説明: {description}\n\n\
             {hearing_section}\
+            {dod_section}\
             ## 指示\n\
             1. タスク内容を分析して、必要な GitHub 操作（Issue クローズ/作成/ラベル整理等）を特定してください\n\
             2. 操作計画を以下の形式で出力してください:\n\
@@ -335,6 +359,7 @@ pub async fn run_planning_phase(
             タイトル: {title}\n\
             説明: {description}\n\n\
             {hearing_section}\
+            {dod_section}\
             ## 指示\n\
             1. コードベースを分析して、変更が必要なファイルを特定してください\n\
             2. 実装計画を以下の形式で出力してください:\n\
@@ -473,18 +498,25 @@ async fn run_coder_to_pr(
         format!("## ヒアリング回答\n{hearing_context}\n")
     };
 
+    // DoD 取得
+    let dod = task_service::get_task(pool, task_id).await.ok()
+        .and_then(|t| t.definition_of_done);
+    let dod_section = build_dod_section(&dod);
+
     let coder_prompt = format!(
         "あなたは Coder Agent です。以下の計画に基づいてコードを実装してください。\n\n\
         ## タスク\n\
         タイトル: {title}\n\
         説明: {description}\n\n\
         {hearing_section}\
+        {dod_section}\
         ## 実装計画\n\
         {plan}\n\n\
         ## 指示\n\
         - 計画に従って必要なコード変更を実装してください\n\
         - テストコードも追加してください\n\
-        - 変更は最小限に留めてください"
+        - 変更は最小限に留めてください\n\
+        - 完了条件がある場合は、すべての条件を満たすように実装してください"
     );
 
     let coder_result = match run_claude_autonomous_with_retry(&coder_prompt, wt_path, timeout::CODER_SECS).await {
@@ -512,14 +544,17 @@ async fn run_coder_to_pr(
             log(pool, session_id, "reviewer", iteration, "info", &format!("レビュー iteration {iteration}")).await;
 
             let diff = get_diff_output(wt_path).await;
+            let reviewer_dod = build_dod_section(&dod);
             let reviewer_prompt = format!(
                 "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
                 ## タスク\n\
                 {description}\n\n\
+                {reviewer_dod}\
                 ## Diff\n\
                 ```\n{diff}\n```\n\n\
                 ## 指示\n\
                 - コード品質、バグ、セキュリティの観点でレビュー\n\
+                - 完了条件がある場合は、すべての条件が満たされているか確認\n\
                 - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
             );
 
@@ -771,6 +806,8 @@ pub async fn run_revision_phase(
         Err(_) => return,
     };
     let plan = task.plan.unwrap_or_default();
+    let dod = task.definition_of_done;
+    let dod_section = build_dod_section(&dod);
     let hearing_context = task_service::get_hearing_context(pool, task_id).await.unwrap_or_default();
 
     // === Coder (修正指示付き) ===
@@ -789,6 +826,7 @@ pub async fn run_revision_phase(
         タイトル: {title}\n\
         説明: {description}\n\n\
         {hearing_section}\
+        {dod_section}\
         ## 元の実装計画\n\
         {plan}\n\n\
         ## 修正依頼\n\
@@ -796,7 +834,8 @@ pub async fn run_revision_phase(
         ## 指示\n\
         - 上記の修正依頼に基づいて必要なコード変更を実装してください\n\
         - これは既存 PR への追加修正です\n\
-        - 修正依頼の内容に集中し、余計な変更は避けてください"
+        - 修正依頼の内容に集中し、余計な変更は避けてください\n\
+        - 完了条件がある場合は、すべての条件を満たすように修正してください"
     );
 
     let coder_result = match claude_cli::run_claude_autonomous(&coder_prompt, &wt_path, 1500).await {
@@ -823,17 +862,20 @@ pub async fn run_revision_phase(
         log(pool, session_id, "reviewer", iteration, "info", &format!("修正レビュー iteration {iteration}")).await;
 
         let diff = get_diff_output(&wt_path).await;
+        let reviewer_dod = build_dod_section(&dod);
         let reviewer_prompt = format!(
             "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
             ## タスク\n\
             {description}\n\n\
             ## 修正依頼\n\
             {instructions}\n\n\
+            {reviewer_dod}\
             ## Diff\n\
             ```\n{diff}\n```\n\n\
             ## 指示\n\
             - コード品質、バグ、セキュリティの観点でレビュー\n\
             - 修正依頼の内容が適切に反映されているか確認\n\
+            - 完了条件がある場合は、すべての条件が満たされているか確認\n\
             - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
         );
 

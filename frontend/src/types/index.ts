@@ -64,6 +64,7 @@ export interface Task {
   merge_status: "pending" | "merged" | "conflict" | "failed" | null;
   merge_attempted_at: string | null;
   revision_count: number;
+  definition_of_done: string | null;
 }
 
 export interface ExecutionSession {

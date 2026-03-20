@@ -10,6 +10,65 @@ use crate::response::SuccessResponse;
 use super::model::*;
 use super::service;
 
+/// Issue 本文から Definition of Done (完了条件) を自動抽出する
+fn extract_dod_from_issue(title: &str, body: &str) -> String {
+    // セクションヘッダーを探す
+    let section_markers = [
+        "## Definition of Done",
+        "## DoD",
+        "## 完了条件",
+        "## Acceptance Criteria",
+        "### Definition of Done",
+        "### DoD",
+        "### 完了条件",
+        "### Acceptance Criteria",
+    ];
+
+    for marker in &section_markers {
+        if let Some(start) = body.find(marker) {
+            let after = &body[start + marker.len()..];
+            // 次のセクション（## or ###）までを取得
+            let section = if let Some(end) = after[1..].find("\n## ").or_else(|| after[1..].find("\n### ")) {
+                &after[..end + 1]
+            } else {
+                after
+            };
+            let items = extract_checklist_items(section);
+            if !items.is_empty() {
+                return items.join("\n");
+            }
+        }
+    }
+
+    // セクションが見つからない場合、本文全体からチェックリスト形式を探す
+    let items = extract_checklist_items(body);
+    if !items.is_empty() {
+        return items.join("\n");
+    }
+
+    // フォールバック: Issue タイトルから生成
+    format!("- [ ] {} が実装されている\n- [ ] テストが通る\n- [ ] ビルドが成功する", title)
+}
+
+/// テキストからチェックリスト項目（`- [ ]` / `- [x]`）を抽出
+fn extract_checklist_items(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("- [ ]") || trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]")
+        })
+        .map(|line| {
+            // 全てを未チェック状態に統一
+            let trimmed = line.trim();
+            if trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]") {
+                format!("- [ ]{}", &trimmed[5..])
+            } else {
+                trimmed.to_string()
+            }
+        })
+        .collect()
+}
+
 async fn list_tasks(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -341,12 +400,18 @@ async fn execute_issue(
     let issue = state.github.fetch_issue(&repo.owner, &repo.name, body.issue_number as i64).await?;
 
     // Issue からタスクを作成
+    let issue_body = issue.body.unwrap_or_default();
     let description = format!(
         "GitHub Issue #{}: {}\n\n{}",
         issue.number,
         issue.title,
-        issue.body.unwrap_or_default()
+        issue_body
     );
+
+    // DoD: リクエストで明示指定があればそれを使用、なければ Issue 本文から自動抽出
+    let definition_of_done = body.definition_of_done.clone()
+        .unwrap_or_else(|| extract_dod_from_issue(&issue.title, &issue_body));
+
     let task = service::create_task_from_issue(
         &state.pool,
         body.project_id,
@@ -355,6 +420,7 @@ async fn execute_issue(
         &body.issue_url,
         &issue.title,
         &description,
+        &definition_of_done,
     ).await?;
 
     let task_id = task.id;

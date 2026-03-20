@@ -100,6 +100,7 @@ export function createTask(body: {
   title: string;
   description: string;
   priority?: string;
+  definition_of_done?: string;
 }) {
   return request<{ data: import("@/types").Task }>("/api/tasks", {
     method: "POST",
