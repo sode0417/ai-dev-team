@@ -63,6 +63,7 @@ pub struct Task {
     pub merge_status: Option<String>,
     pub merge_attempted_at: Option<DateTime<Utc>>,
     pub revision_count: i32,
+    pub definition_of_done: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -82,6 +83,7 @@ pub struct CreateTaskRequest {
     pub title: String,
     pub description: String,
     pub priority: Option<TaskPriority>,
+    pub definition_of_done: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +91,7 @@ pub struct UpdateTaskRequest {
     pub title: Option<String>,
     pub description: Option<String>,
     pub priority: Option<TaskPriority>,
+    pub definition_of_done: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,6 +147,7 @@ pub struct ExecuteIssueRequest {
     pub issue_number: i32,
     pub issue_url: String,
     pub skip_hearing: Option<bool>,
+    pub definition_of_done: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -178,6 +178,27 @@ export default function TaskDetailPage({
         )}
       </div>
 
+      {/* ─── Definition of Done ─── */}
+      {task.definition_of_done && (
+        <div className="mb-5 rounded-lg border border-gh-border bg-gh-surface/50 overflow-hidden">
+          <button
+            onClick={() => {
+              const el = document.getElementById("dod-body");
+              if (el) el.classList.toggle("hidden");
+            }}
+            className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-gh-text-secondary hover:bg-gh-overlay transition cursor-pointer"
+          >
+            <span>完了条件 (Definition of Done)</span>
+            <svg className="w-4 h-4 text-gh-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div id="dod-body" className="px-4 py-3 border-t border-gh-border/50">
+            <DoDChecklist dod={task.definition_of_done} />
+          </div>
+        </div>
+      )}
+
       {error && <div className="text-gh-red mb-4 text-sm">{error}</div>}
 
       {/* ─── Action Buttons ─── */}
@@ -640,6 +661,40 @@ function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+function DoDChecklist({ dod }: { dod: string }) {
+  const lines = dod.split("\n").filter((l) => l.trim().length > 0);
+  return (
+    <ul className="space-y-1">
+      {lines.map((line, i) => {
+        const trimmed = line.trim();
+        const isChecked = trimmed.startsWith("- [x]") || trimmed.startsWith("- [X]");
+        const isCheckbox = isChecked || trimmed.startsWith("- [ ]");
+        const text = isCheckbox ? trimmed.slice(5).trim() : trimmed;
+        return (
+          <li key={i} className="flex items-start gap-2 text-sm">
+            {isCheckbox ? (
+              <span className={`mt-0.5 w-4 h-4 shrink-0 rounded border ${
+                isChecked
+                  ? "bg-gh-green/20 border-gh-green text-gh-green flex items-center justify-center"
+                  : "border-gh-border"
+              }`}>
+                {isChecked && (
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </span>
+            ) : (
+              <span className="mt-0.5 w-4 shrink-0 text-gh-text-muted">•</span>
+            )}
+            <span className={isChecked ? "text-gh-text-muted line-through" : "text-gh-text-secondary"}>{text}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

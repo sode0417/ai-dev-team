@@ -920,7 +920,8 @@ fn build_scan_prompt(
       "description": "何をなぜやるか",
       "priority": "high|medium|low",
       "proposal_type": "development|improvement|investigation|operation",
-      "issue_number": null
+      "issue_number": null,
+      "definition_of_done": "- [ ] 条件1\n- [ ] 条件2\n- [ ] 条件3"
     }}
   ],
   "improvement_suggestions": [
@@ -933,6 +934,7 @@ fn build_scan_prompt(
 }}
 
 ルール:
+- **完了条件 (DoD) 必須**: 各タスクには definition_of_done をチェックリスト形式（`- [ ] 条件`）で必ず含めること。完了時にすべてチェックが入る具体的・検証可能な条件を3〜5項目記述する
 - **1タスク = 1PR**: タスクは1つのPRで完結する粒度にすること。複数PRが必要な規模のタスクは分割して提案する
 - 大きなリファクタリングや複数ファイルにまたがる変更も、論理的に独立した単位に分割する
 - ユーザーは Issue に簡単なバグ・改善を書いているので、それをタスク化する

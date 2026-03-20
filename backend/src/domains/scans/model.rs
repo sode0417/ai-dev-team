@@ -36,6 +36,7 @@ pub struct TaskProposal {
     pub priority: Option<String>,
     pub proposal_type: Option<String>,
     pub issue_number: Option<i64>,
+    pub definition_of_done: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

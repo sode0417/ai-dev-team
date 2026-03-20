@@ -253,6 +253,24 @@ function TaskProposalCard({
           <p className="text-xs text-gh-text-secondary line-clamp-2">
             {task.description}
           </p>
+          {task.definition_of_done && (
+            <details className="mt-1.5">
+              <summary className="text-[10px] text-gh-text-muted cursor-pointer hover:text-gh-text-secondary">
+                完了条件 (DoD)
+              </summary>
+              <ul className="mt-1 space-y-0.5 text-xs text-gh-text-secondary">
+                {task.definition_of_done.split("\n").filter(l => l.trim()).map((line, i) => {
+                  const text = line.trim().replace(/^- \[[ xX]\] /, "");
+                  return (
+                    <li key={i} className="flex items-start gap-1.5">
+                      <span className="mt-0.5 w-3 h-3 shrink-0 rounded border border-gh-border" />
+                      <span>{text}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+          )}
         </div>
         {isActionable && (
           <div className="flex gap-1.5 shrink-0">
