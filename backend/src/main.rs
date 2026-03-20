@@ -297,12 +297,12 @@ async fn main() {
         });
     }
 
-    // 自動マージループ起動
+    // コンフリクト監視ループ起動（マージは GitHub Auto-merge が行う）
     {
         let merge_pool = state.pool.clone();
         let merge_ws = state.ws_hub.clone();
         tokio::spawn(async move {
-            executor::merger::start_auto_merge_loop(merge_pool, merge_ws).await;
+            executor::merger::start_conflict_watch_loop(merge_pool, merge_ws).await;
         });
     }
 
