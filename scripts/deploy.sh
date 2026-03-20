@@ -127,7 +127,7 @@ deploy_rust() {
   mkdir -p "$(dirname "$log_file")"
 
   log "[$name] 起動: ポート $port"
-  (cd "$REPO_ROOT" && nohup "$REPO_ROOT/$dir/$binary" >> "$log_file" 2>> "$error_log" &)
+  (cd "$REPO_ROOT/$dir" && nohup "$REPO_ROOT/$dir/$binary" >> "$log_file" 2>> "$error_log" &)
   sleep 2
 
   if lsof -ti ":$port" &>/dev/null; then
