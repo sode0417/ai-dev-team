@@ -258,7 +258,7 @@ export interface MergeEvent {
   type: "merge_event";
   task_id: string;
   task_title: string;
-  event: "merged" | "conflict_resolved" | "conflict" | "failed";
+  event: "merged" | "conflict_resolved" | "conflict" | "failed" | "auto_merge_enabled";
   message: string;
 }
 

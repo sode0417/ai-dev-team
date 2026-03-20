@@ -161,6 +161,37 @@ pub async fn commit_and_create_pr(
     }
 
     let pr_url = String::from_utf8_lossy(&pr.stdout).trim().to_string();
+
+    // GitHub Auto-merge を有効化（Branch Protection 未設定の場合は無視される）
+    let auto_merge = Command::new("gh")
+        .args([
+            "pr",
+            "merge",
+            &pr_url,
+            "--auto",
+            "--squash",
+            "--delete-branch",
+        ])
+        .current_dir(worktree_path)
+        .output()
+        .await;
+
+    match auto_merge {
+        Ok(output) if output.status.success() => {
+            tracing::info!("Auto-merge enabled for PR: {pr_url}");
+        }
+        Ok(output) => {
+            // auto-merge が有効化できなくても PR 作成自体は成功
+            tracing::warn!(
+                "Auto-merge could not be enabled (Branch Protection may not be configured): {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Failed to run gh pr merge --auto: {e}");
+        }
+    }
+
     Ok(pr_url)
 }
 

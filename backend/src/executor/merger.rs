@@ -9,12 +9,15 @@ use crate::executor::claude_cli;
 use crate::executor::worktree;
 use crate::ws::WsHub;
 
-const MERGE_CHECK_INTERVAL_SECS: u64 = 300; // 5分
+const CONFLICT_CHECK_INTERVAL_SECS: u64 = 300; // 5分
 
-/// 自動マージの定期ループを開始
-pub async fn start_auto_merge_loop(pool: PgPool, ws_hub: WsHub) {
+/// コンフリクト監視の定期ループを開始
+/// GitHub Auto-merge が有効な場合、マージ自体は GitHub が行う。
+/// このループはコンフリクト（CONFLICTING）で止まった PR を検出し、
+/// Claude Code で自動修復を試みる。
+pub async fn start_conflict_watch_loop(pool: PgPool, ws_hub: WsHub) {
     let mut interval =
-        tokio::time::interval(std::time::Duration::from_secs(MERGE_CHECK_INTERVAL_SECS));
+        tokio::time::interval(std::time::Duration::from_secs(CONFLICT_CHECK_INTERVAL_SECS));
 
     loop {
         interval.tick().await;
@@ -22,22 +25,22 @@ pub async fn start_auto_merge_loop(pool: PgPool, ws_hub: WsHub) {
         let tasks = match task_service::list_mergeable_tasks(&pool).await {
             Ok(tasks) => tasks,
             Err(e) => {
-                tracing::error!("自動マージ: タスク取得失敗: {e}");
+                tracing::error!("コンフリクト監視: タスク取得失敗: {e}");
                 continue;
             }
         };
 
         if tasks.is_empty() {
-            tracing::debug!("自動マージ: マージ対象なし");
+            tracing::debug!("コンフリクト監視: 監視対象なし");
             continue;
         }
 
-        tracing::info!("自動マージ: {} 件のPRをチェック", tasks.len());
+        tracing::info!("コンフリクト監視: {} 件のPRをチェック", tasks.len());
 
         for task in tasks {
             if let Err(e) = process_pr(&pool, &ws_hub, &task).await {
                 tracing::error!(
-                    "自動マージ: タスク {} ({}) の処理失敗: {e}",
+                    "コンフリクト監視: タスク {} ({}) の処理失敗: {e}",
                     task.id,
                     task.title
                 );
@@ -46,7 +49,8 @@ pub async fn start_auto_merge_loop(pool: PgPool, ws_hub: WsHub) {
     }
 }
 
-/// PR の状態をチェックし、マージ可能ならマージする
+/// PR の状態をチェックし、コンフリクトがあれば自動修復を試みる
+/// マージ自体は GitHub Auto-merge が行うため、このループではマージしない。
 async fn process_pr(pool: &PgPool, ws_hub: &WsHub, task: &Task) -> Result<(), String> {
     let pr_url = task
         .pr_url
@@ -70,14 +74,14 @@ async fn process_pr(pool: &PgPool, ws_hub: &WsHub, task: &Task) -> Result<(), St
 
     match pr_info.state.as_str() {
         "MERGED" => {
-            // 既にマージ済み
+            // 既にマージ済み（GitHub Auto-merge によるマージ完了）
             task_service::update_merge_status(pool, task.id, "merged")
                 .await
                 .map_err(|e| format!("状態更新失敗: {e}"))?;
-            task_service::add_merge_log(pool, task.id, "check", true, Some("既にマージ済み"))
+            task_service::add_merge_log(pool, task.id, "check", true, Some("GitHub Auto-mergeでマージ済み"))
                 .await
                 .ok();
-            notify_merge_event(ws_hub, task, "merged", "PRは既にマージされています");
+            notify_merge_event(ws_hub, task, "merged", "PRはGitHub Auto-mergeでマージされました");
             return Ok(());
         }
         "CLOSED" => {
@@ -90,37 +94,13 @@ async fn process_pr(pool: &PgPool, ws_hub: &WsHub, task: &Task) -> Result<(), St
             notify_merge_event(ws_hub, task, "failed", "PRがクローズされています");
             return Ok(());
         }
-        _ => {} // OPEN — 処理続行
+        _ => {} // OPEN — コンフリクトチェック続行
     }
 
-    // CI ステータスチェック
-    match pr_info.ci_status.as_str() {
-        "PENDING" | "EXPECTED" => {
-            // CI 未完了 → スキップ
-            tracing::debug!(
-                "自動マージ: PR #{pr_number} ({}) のCIが未完了、次回再チェック",
-                task.title
-            );
-            return Ok(());
-        }
-        "FAILURE" | "ERROR" => {
-            task_service::update_merge_status(pool, task.id, "failed")
-                .await
-                .map_err(|e| format!("状態更新失敗: {e}"))?;
-            task_service::add_merge_log(pool, task.id, "check", false, Some("CI失敗"))
-                .await
-                .ok();
-            notify_merge_event(ws_hub, task, "failed", "CIが失敗しています");
-            return Ok(());
-        }
-        _ => {} // SUCCESS or no checks
-    }
-
-    // マージ可能性チェック
+    // コンフリクトチェック（GitHub Auto-merge はコンフリクトがあると止まる）
     if pr_info.mergeable == "CONFLICTING" {
-        // コンフリクトあり → 自動修復を試みる
         tracing::info!(
-            "自動マージ: PR #{pr_number} ({}) にコンフリクト、修復を試みます",
+            "コンフリクト監視: PR #{pr_number} ({}) にコンフリクト、修復を試みます",
             task.title
         );
         task_service::update_merge_status(pool, task.id, "conflict")
@@ -128,70 +108,16 @@ async fn process_pr(pool: &PgPool, ws_hub: &WsHub, task: &Task) -> Result<(), St
             .map_err(|e| format!("状態更新失敗: {e}"))?;
         notify_merge_event(ws_hub, task, "conflict", "コンフリクトを検出、自動修復を試みています");
 
-        return resolve_conflict(pool, ws_hub, task, &repo_nwo, pr_number, &pr_info.head_ref).await;
+        return resolve_conflict(pool, ws_hub, task, &pr_info.head_ref).await;
     }
 
-    if pr_info.mergeable == "UNKNOWN" {
-        // GitHub がまだマージ可能性を計算中 → 次回再チェック
-        tracing::debug!(
-            "自動マージ: PR #{pr_number} ({}) のマージ可能性が未計算",
-            task.title
-        );
-        return Ok(());
-    }
-
-    // マージ可能（MERGEABLE）→ スカッシュマージ
-    attempt_merge(pool, ws_hub, task, &repo_nwo, pr_number).await
-}
-
-/// スカッシュマージを実行
-async fn attempt_merge(
-    pool: &PgPool,
-    ws_hub: &WsHub,
-    task: &Task,
-    repo_nwo: &str,
-    pr_number: u64,
-) -> Result<(), String> {
-    tracing::info!(
-        "自動マージ: PR #{pr_number} ({}) をスカッシュマージ",
-        task.title
+    // MERGEABLE or UNKNOWN → GitHub Auto-merge に任せる
+    tracing::debug!(
+        "コンフリクト監視: PR #{pr_number} ({}) は正常 (mergeable={})",
+        task.title,
+        pr_info.mergeable
     );
-
-    let output = Command::new("gh")
-        .args([
-            "pr",
-            "merge",
-            &pr_number.to_string(),
-            "--squash",
-            "--delete-branch",
-            "--repo",
-            repo_nwo,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("gh pr merge 実行失敗: {e}"))?;
-
-    if output.status.success() {
-        task_service::update_merge_status(pool, task.id, "merged")
-            .await
-            .map_err(|e| format!("状態更新失敗: {e}"))?;
-        task_service::add_merge_log(pool, task.id, "merge", true, Some("スカッシュマージ成功"))
-            .await
-            .ok();
-        notify_merge_event(ws_hub, task, "merged", "PRをスカッシュマージしました");
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let msg = format!("マージ失敗: {stderr}");
-        task_service::update_merge_status(pool, task.id, "failed")
-            .await
-            .map_err(|e| format!("状態更新失敗: {e}"))?;
-        task_service::add_merge_log(pool, task.id, "merge", false, Some(&msg))
-            .await
-            .ok();
-        notify_merge_event(ws_hub, task, "failed", &msg);
-        Err(msg)
-    }
+    Ok(())
 }
 
 /// コンフリクトを Claude Code で解消
@@ -199,8 +125,6 @@ async fn resolve_conflict(
     pool: &PgPool,
     ws_hub: &WsHub,
     task: &Task,
-    repo_nwo: &str,
-    pr_number: u64,
     head_ref: &str,
 ) -> Result<(), String> {
     task_service::add_merge_log(
@@ -318,8 +242,15 @@ async fn resolve_conflict(
 
         if push.status.success() {
             worktree::cleanup_worktree(&repo_path, &worktree_dir).await.ok();
-            // マージ再試行
-            return attempt_merge(pool, ws_hub, task, repo_nwo, pr_number).await;
+            // コンフリクト解消済み → pending に戻して GitHub Auto-merge に任せる
+            task_service::update_merge_status(pool, task.id, "pending")
+                .await
+                .map_err(|e| format!("状態更新失敗: {e}"))?;
+            task_service::add_merge_log(pool, task.id, "resolve_conflict", true, Some("コンフリクト解消済み、Auto-mergeに委譲"))
+                .await
+                .ok();
+            notify_merge_event(ws_hub, task, "conflict_resolved", "コンフリクトを解消しました。GitHub Auto-mergeでマージされます。");
+            return Ok(());
         }
     }
 
@@ -475,6 +406,7 @@ fn extract_repo_nwo(pr_url: &str) -> Option<String> {
 struct PrInfo {
     state: String,
     mergeable: String,
+    #[allow(dead_code)] // CI ステータスはログ・将来の拡張用に保持
     ci_status: String,
     head_ref: String,
 }

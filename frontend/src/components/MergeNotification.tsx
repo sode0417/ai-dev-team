@@ -92,6 +92,12 @@ const EVENT_STYLES: Record<
     icon: "text-gh-red",
     label: "マージ失敗",
   },
+  auto_merge_enabled: {
+    bg: "bg-gh-blue/10",
+    border: "border-gh-blue/30",
+    icon: "text-gh-blue",
+    label: "Auto-merge有効",
+  },
 };
 
 function NotificationToast({
@@ -114,6 +120,7 @@ function NotificationToast({
           {event.event === "conflict_resolved" && "\u2713"}
           {event.event === "conflict" && "\u26A0"}
           {event.event === "failed" && "\u2717"}
+          {event.event === "auto_merge_enabled" && "\u2713"}
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
