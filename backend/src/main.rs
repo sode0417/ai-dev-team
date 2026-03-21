@@ -297,12 +297,24 @@ async fn main() {
         });
     }
 
+    // スタックタスク復旧（起動時に1回実行）
+    executor::watchdog::recover_stuck_on_startup(&state.pool, &state.ws_hub).await;
+
     // コンフリクト監視ループ起動（マージは GitHub Auto-merge が行う）
     {
         let merge_pool = state.pool.clone();
         let merge_ws = state.ws_hub.clone();
         tokio::spawn(async move {
             executor::merger::start_conflict_watch_loop(merge_pool, merge_ws).await;
+        });
+    }
+
+    // スタックタスク Watchdog ループ起動（5分間隔）
+    {
+        let watchdog_pool = state.pool.clone();
+        let watchdog_ws = state.ws_hub.clone();
+        tokio::spawn(async move {
+            executor::watchdog::start_watchdog_loop(watchdog_pool, watchdog_ws).await;
         });
     }
 
