@@ -188,15 +188,43 @@ export default function TaskDetailPage({
           {task.started_at && <span>開始: {new Date(task.started_at).toLocaleString("ja-JP")}</span>}
           {task.completed_at && <span>完了: {new Date(task.completed_at).toLocaleString("ja-JP")}</span>}
         </div>
-        {task.sprint_id && (
-          <Link
-            href={`/projects/${task.project_id}?tab=sprint`}
-            className="inline-flex items-center gap-1 text-xs text-gh-purple hover:underline mt-1"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-gh-purple inline-block" />
-            Sprint
-          </Link>
-        )}
+        <div className="flex items-center gap-3 mt-1 flex-wrap">
+          {task.sprint_id && (
+            <Link
+              href={`/projects/${task.project_id}?tab=sprint`}
+              className="inline-flex items-center gap-1 text-xs text-gh-purple hover:underline"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-gh-purple inline-block" />
+              Sprint
+            </Link>
+          )}
+          {task.issue_url && (
+            <a
+              href={task.issue_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-gh-link hover:underline"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z" />
+              </svg>
+              Issue #{task.issue_number}
+            </a>
+          )}
+          {task.pr_url && (
+            <a
+              href={task.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-gh-link hover:underline"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354Z" />
+              </svg>
+              PR
+            </a>
+          )}
+        </div>
       </div>
 
       {/* ─── Definition of Done ─── */}
