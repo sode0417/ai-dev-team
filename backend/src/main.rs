@@ -242,15 +242,24 @@ fn cors_layer(config: &Config) -> CorsLayer {
         .filter_map(|o| o.parse().ok())
         .collect();
 
+    use axum::http::header;
+
     CorsLayer::new()
         .allow_methods([
             Method::GET,
             Method::POST,
             Method::PUT,
             Method::DELETE,
+            Method::OPTIONS,
         ])
-        .allow_headers(tower_http::cors::Any)
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::COOKIE,
+            header::HeaderName::from_static("x-api-key"),
+        ])
         .allow_origin(AllowOrigin::list(origins))
+        .allow_credentials(true)
 }
 
 #[tokio::main]
