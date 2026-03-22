@@ -9,7 +9,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
     let mut sql = String::from(
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
          FROM tasks WHERE 1=1",
     );
     let mut binds: Vec<String> = vec![];
@@ -31,7 +31,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
                  FROM tasks WHERE project_id = $1 AND status::text = $2 \
                  ORDER BY execution_order, created_at DESC",
             )
@@ -44,7 +44,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
                  FROM tasks WHERE project_id = $1 \
                  ORDER BY execution_order, created_at DESC",
             )
@@ -56,7 +56,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
                  FROM tasks WHERE status::text = $1 \
                  ORDER BY execution_order, created_at DESC",
             )
@@ -68,7 +68,7 @@ pub async fn list_tasks(pool: &PgPool, query: &ListTasksQuery) -> Result<Vec<Tas
             Ok(sqlx::query_as::<_, Task>(
                 "SELECT id, project_id, repository_id, title, description, status, priority, \
                  depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+                 retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
                  FROM tasks ORDER BY execution_order, created_at DESC",
             )
             .fetch_all(pool)
@@ -81,7 +81,7 @@ pub async fn get_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
     sqlx::query_as::<_, Task>(
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
          FROM tasks WHERE id = $1",
     )
     .bind(id)
@@ -395,7 +395,7 @@ pub async fn list_mergeable_tasks(pool: &PgPool) -> Result<Vec<Task>, AppError> 
         "SELECT id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
          retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-         scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done \
+         scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason \
          FROM tasks WHERE pr_url IS NOT NULL AND status = 'completed' AND merge_status = 'pending' \
          ORDER BY completed_at",
     )
