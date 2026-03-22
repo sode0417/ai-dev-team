@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchRepositoryIssues } from "@/lib/api";
+import { fetchRepositoryIssues, createRepositoryIssue } from "@/lib/api";
 import type { GitHubIssue } from "@/types";
 
 export function IssueList({
@@ -18,6 +18,7 @@ export function IssueList({
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   const load = (p: number, s: string, append = false) => {
     setLoading(true);
@@ -43,28 +44,49 @@ export function IssueList({
 
   return (
     <div className="mt-3">
-      <div className="flex gap-1 mb-2">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex gap-1">
+          <button
+            onClick={() => setState("open")}
+            className={`text-xs px-2.5 py-1 rounded-md font-medium transition ${
+              state === "open"
+                ? "bg-gh-green/15 text-gh-green"
+                : "text-gh-text-secondary hover:text-gh-text"
+            }`}
+          >
+            Open
+          </button>
+          <button
+            onClick={() => setState("closed")}
+            className={`text-xs px-2.5 py-1 rounded-md font-medium transition ${
+              state === "closed"
+                ? "bg-gh-purple/15 text-gh-purple"
+                : "text-gh-text-secondary hover:text-gh-text"
+            }`}
+          >
+            Closed
+          </button>
+        </div>
         <button
-          onClick={() => setState("open")}
-          className={`text-xs px-2.5 py-1 rounded-md font-medium transition ${
-            state === "open"
-              ? "bg-gh-green/15 text-gh-green"
-              : "text-gh-text-secondary hover:text-gh-text"
-          }`}
+          onClick={() => setShowForm(!showForm)}
+          className="ml-auto text-xs text-gh-link hover:underline"
         >
-          Open
-        </button>
-        <button
-          onClick={() => setState("closed")}
-          className={`text-xs px-2.5 py-1 rounded-md font-medium transition ${
-            state === "closed"
-              ? "bg-gh-purple/15 text-gh-purple"
-              : "text-gh-text-secondary hover:text-gh-text"
-          }`}
-        >
-          Closed
+          {showForm ? "閉じる" : "+ New Issue"}
         </button>
       </div>
+
+      {showForm && (
+        <CreateIssueForm
+          projectId={projectId}
+          repoId={repoId}
+          onCreated={() => {
+            setShowForm(false);
+            setState("open");
+            setPage(1);
+            load(1, "open");
+          }}
+        />
+      )}
 
       {loading && issues.length === 0 ? (
         <p className="text-gh-text-muted text-xs py-2">読み込み中...</p>
@@ -146,5 +168,87 @@ export function IssueList({
         </div>
       )}
     </div>
+  );
+}
+
+function CreateIssueForm({
+  projectId,
+  repoId,
+  onCreated,
+}: {
+  projectId: string;
+  repoId: string;
+  onCreated: () => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [labels, setLabels] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const labelList = labels
+        .split(",")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      await createRepositoryIssue(projectId, repoId, {
+        title: title.trim(),
+        body: body.trim() || undefined,
+        labels: labelList.length > 0 ? labelList : undefined,
+      });
+      onCreated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Issue 作成に失敗しました");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="mb-4 p-3 bg-gh-surface border border-gh-border rounded-lg space-y-3">
+      <div>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Issue タイトル"
+          className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-blue focus:ring-1 focus:ring-gh-blue/40"
+          required
+        />
+      </div>
+      <div>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="本文（任意）"
+          rows={4}
+          className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-blue focus:ring-1 focus:ring-gh-blue/40 resize-none"
+        />
+      </div>
+      <div>
+        <input
+          type="text"
+          value={labels}
+          onChange={(e) => setLabels(e.target.value)}
+          placeholder="ラベル（カンマ区切り、例: bug, enhancement）"
+          className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-blue focus:ring-1 focus:ring-gh-blue/40"
+        />
+      </div>
+      {error && <div className="text-gh-red text-sm">{error}</div>}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={!title.trim() || submitting}
+          className="px-4 py-1.5 text-sm font-medium rounded-md bg-gh-green text-white hover:bg-gh-green/90 transition disabled:opacity-50"
+        >
+          {submitting ? "作成中..." : "Issue を作成"}
+        </button>
+      </div>
+    </form>
   );
 }

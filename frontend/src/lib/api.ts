@@ -322,6 +322,17 @@ export function fetchRepositoryIssues(
   );
 }
 
+export function createRepositoryIssue(
+  projectId: string,
+  repoId: string,
+  body: { title: string; body?: string; labels?: string[] }
+) {
+  return request<{ data: import("@/types").GitHubIssue }>(
+    `/api/projects/${projectId}/repositories/${repoId}/issues`,
+    { method: "POST", body: JSON.stringify(body) }
+  );
+}
+
 export function fetchRepositoryPulls(
   projectId: string,
   repoId: string,

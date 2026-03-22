@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::{delete, get, post}};
+use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -125,12 +126,36 @@ async fn list_pulls(
     }))
 }
 
+#[derive(Deserialize)]
+struct CreateIssueRequest {
+    title: String,
+    body: Option<String>,
+    labels: Option<Vec<String>>,
+}
+
+async fn create_issue(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path((project_id, repo_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<CreateIssueRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let repo = service::get_repository(&state.pool, project_id, repo_id).await?;
+    let labels: Vec<&str> = body.labels.as_ref()
+        .map(|l| l.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+    let issue = state
+        .github
+        .create_issue(&repo.owner, &repo.name, &body.title, body.body.as_deref().unwrap_or(""), &labels)
+        .await?;
+    Ok(Json(json!({ "data": issue })))
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_projects).post(create_project))
         .route("/{id}", get(get_project).put(update_project).delete(delete_project))
         .route("/{id}/repositories", post(add_repository))
         .route("/{id}/repositories/{repo_id}", delete(delete_repository))
-        .route("/{id}/repositories/{repo_id}/issues", get(list_issues))
+        .route("/{id}/repositories/{repo_id}/issues", get(list_issues).post(create_issue))
         .route("/{id}/repositories/{repo_id}/pulls", get(list_pulls))
 }
