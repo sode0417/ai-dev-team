@@ -274,9 +274,17 @@ pub async fn create_hearing(
     task_id: Uuid,
     session_id: Option<Uuid>,
     phase: &str,
-    round: i32,
+    _round: i32, // 互換性のため残すが使用しない（自動計算）
     questions: &Value,
 ) -> Result<TaskHearing, AppError> {
+    // round を既存のヒアリング数から自動計算
+    let round: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(round), 0) + 1 FROM task_hearings WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .fetch_one(pool)
+    .await?;
+
     Ok(sqlx::query_as::<_, TaskHearing>(
         "INSERT INTO task_hearings (task_id, session_id, phase, round, questions) \
          VALUES ($1, $2, $3, $4, $5) \
