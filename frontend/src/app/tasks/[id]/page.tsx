@@ -135,6 +135,14 @@ export default function TaskDetailPage({
   const currentPhase = task.status;
   const isTerminal = ["completed", "failed", "cancelled"].includes(currentPhase);
 
+  // ログから各フェーズの最初の時刻を取得
+  const phaseTimestamps: Record<string, string> = {};
+  for (const log of logs) {
+    if (!phaseTimestamps[log.phase]) {
+      phaseTimestamps[log.phase] = log.created_at;
+    }
+  }
+
   return (
     <div className="max-w-4xl">
       {/* ─── Back + Header ─── */}
@@ -234,6 +242,7 @@ export default function TaskDetailPage({
           show={hearings.length > 0 || currentPhase === "hearing"}
           collapsible={currentPhase !== "hearing" && hearings.length > 0}
           defaultCollapsed={currentPhase !== "hearing"}
+          timestamp={phaseTimestamps["hearing"] || (hearings.length > 0 ? hearings[0].created_at : null)}
         >
           {currentPhase === "hearing" && hearings.length > 0 ? (
             <HearingPanel taskId={id} hearings={hearings} onAnswered={load} />
@@ -242,30 +251,28 @@ export default function TaskDetailPage({
           ) : null}
         </PhaseCard>
 
-        {/* Planning Card */}
+        {/* Planning Card（計画内容 + 承認UIを統合） */}
         <PhaseCard
-          phase="planning"
+          phase={currentPhase === "awaiting_approval" ? "awaiting_approval" : "planning"}
           currentPhase={currentPhase}
           show={phaseIndex(currentPhase) >= phaseIndex("planning") || !!task.plan}
+          collapsible={!!task.plan && phaseIndex(currentPhase) > phaseIndex("awaiting_approval")}
+          defaultCollapsed={isTerminal}
+          timestamp={phaseTimestamps["planner"]}
         >
-          {currentPhase === "planning" && (
+          {currentPhase === "planning" && !task.plan && (
             <div className="flex items-center gap-2 text-sm text-gh-text-secondary">
               <Spinner /> Planner Agent 分析中...
             </div>
           )}
-        </PhaseCard>
-
-        {/* Awaiting Approval Card */}
-        <PhaseCard
-          phase="awaiting_approval"
-          currentPhase={currentPhase}
-          show={currentPhase === "awaiting_approval" || (!!task.plan && phaseIndex(currentPhase) > phaseIndex("awaiting_approval"))}
-        >
-          {currentPhase === "awaiting_approval" && task.plan ? (
+          {currentPhase === "awaiting_approval" && task.plan && (
             <PlanApprovalPanel taskId={id} plan={task.plan} onAction={load} />
-          ) : task.plan && phaseIndex(currentPhase) > phaseIndex("awaiting_approval") ? (
-            <div className="text-xs text-gh-text-muted">計画承認済み</div>
-          ) : null}
+          )}
+          {task.plan && currentPhase !== "awaiting_approval" && (
+            <div className="max-h-[600px] overflow-auto">
+              <Markdown>{task.plan}</Markdown>
+            </div>
+          )}
         </PhaseCard>
 
         {/* Execution Card */}
@@ -273,6 +280,7 @@ export default function TaskDetailPage({
           phase="executing"
           currentPhase={currentPhase}
           show={phaseIndex(currentPhase) >= phaseIndex("executing")}
+          timestamp={phaseTimestamps["coder"]}
         >
           {(currentPhase === "executing" || currentPhase === "reviewing") && (
             <LiveProgress messages={wsMessages} logs={logs} />
@@ -285,6 +293,7 @@ export default function TaskDetailPage({
             phase="reviewing"
             currentPhase={currentPhase}
             show={true}
+            timestamp={phaseTimestamps["reviewer"]}
           >
             <div className="text-sm">
               <span className={`font-medium ${sessions[0].review_verdict === "APPROVE" ? "text-gh-green" : "text-gh-orange"}`}>
@@ -300,6 +309,7 @@ export default function TaskDetailPage({
             phase="qa"
             currentPhase={currentPhase}
             show={true}
+            timestamp={phaseTimestamps["qa"]}
           >
             <div className="space-y-3">
               <div className="text-sm">
@@ -341,6 +351,7 @@ export default function TaskDetailPage({
           phase={task.status === "failed" ? "failed" : "completed"}
           currentPhase={currentPhase}
           show={isTerminal}
+          timestamp={task.completed_at}
         >
           {task.status === "completed" && (
             <CompletedCard task={task} />
@@ -360,38 +371,6 @@ export default function TaskDetailPage({
           )}
         </PhaseCard>
       </div>
-
-      {/* ─── Plan (collapsible, shown after planning) ─── */}
-      {task.plan && currentPhase !== "awaiting_approval" && (
-        <Accordion title="計画内容" defaultOpen={isTerminal} className="mt-4">
-          <div className="max-h-[600px] overflow-auto">
-            <Markdown>{task.plan}</Markdown>
-          </div>
-        </Accordion>
-      )}
-
-      {/* ─── Execution Logs ─── */}
-      {sessions.length > 0 && logs.length > 0 && (
-        <Accordion title={`実行ログ — Attempt #${sessions[0].attempt}`} defaultOpen={!isTerminal} className="mt-3">
-          <div className="text-sm font-mono max-h-80 overflow-auto space-y-0.5">
-            {logs.map((log) => (
-              <div key={log.id} className="py-0.5">
-                <span className="text-gh-text-muted">
-                  {new Date(log.created_at).toLocaleTimeString("ja-JP")}
-                </span>{" "}
-                <span className={
-                  log.level === "error" ? "text-gh-red"
-                    : log.level === "warn" ? "text-gh-orange"
-                    : "text-gh-green"
-                }>
-                  [{log.phase}]
-                </span>{" "}
-                <span className="text-gh-text">{log.message}</span>
-              </div>
-            ))}
-          </div>
-        </Accordion>
-      )}
 
       {/* ─── Changed Files ─── */}
       {task.changed_files && (
@@ -428,6 +407,7 @@ function PhaseCard({
   children,
   collapsible = false,
   defaultCollapsed = false,
+  timestamp,
 }: {
   phase: string;
   currentPhase: string;
@@ -435,6 +415,7 @@ function PhaseCard({
   children: React.ReactNode;
   collapsible?: boolean;
   defaultCollapsed?: boolean;
+  timestamp?: string | null;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
@@ -478,8 +459,13 @@ function PhaseCard({
         <span className={`text-sm font-medium ${isActive ? styles.text : "text-gh-text-secondary"}`}>
           {meta.label}
         </span>
+        {timestamp && (
+          <span className="ml-auto text-[10px] text-gh-text-muted">
+            {new Date(timestamp).toLocaleTimeString("ja-JP")}
+          </span>
+        )}
         {isActive && (
-          <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full ${styles.badge} font-medium`}>
+          <span className={`${timestamp ? "" : "ml-auto"} text-[10px] px-1.5 py-0.5 rounded-full ${styles.badge} font-medium`}>
             進行中
           </span>
         )}
