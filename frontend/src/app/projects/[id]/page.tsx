@@ -24,7 +24,7 @@ import { IssueList } from "@/components/IssueList";
 import { PullRequestList } from "@/components/PullRequestList";
 import { SprintPanel } from "@/components/SprintPanel";
 
-type PageTab = "repositories" | "tasks" | "sprint";
+type PageTab = "sprint" | "tasks" | "repositories";
 
 export default function ProjectDetailPage({
   params,
@@ -33,7 +33,7 @@ export default function ProjectDetailPage({
 }) {
   const { id } = use(params);
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get("tab") as PageTab) || "repositories";
+  const initialTab = (searchParams.get("tab") as PageTab) || "sprint";
 
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -139,19 +139,19 @@ export default function ProjectDetailPage({
 
       {/* Tabs */}
       <div className="flex border-b border-gh-border mb-4 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-6 lg:px-6 overflow-x-auto">
-        <button className={tabClass("repositories")} onClick={() => setActiveTab("repositories")}>
-          Repositories
-          <span className="ml-1.5 text-xs text-gh-text-muted">{project.repositories.length}</span>
-        </button>
-        <button className={tabClass("tasks")} onClick={() => setActiveTab("tasks")}>
-          Tasks
-          <span className="ml-1.5 text-xs text-gh-text-muted">{tasks.length}</span>
-        </button>
         <button className={tabClass("sprint")} onClick={() => setActiveTab("sprint")}>
           Sprint
           {activeSprintId && (
             <span className="ml-1.5 w-2 h-2 rounded-full bg-gh-green inline-block animate-pulse" />
           )}
+        </button>
+        <button className={tabClass("tasks")} onClick={() => setActiveTab("tasks")}>
+          Tasks
+          <span className="ml-1.5 text-xs text-gh-text-muted">{tasks.length}</span>
+        </button>
+        <button className={tabClass("repositories")} onClick={() => setActiveTab("repositories")}>
+          Repositories
+          <span className="ml-1.5 text-xs text-gh-text-muted">{project.repositories.length}</span>
         </button>
       </div>
 
