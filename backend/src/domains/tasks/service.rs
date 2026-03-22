@@ -107,7 +107,7 @@ pub async fn create_task(pool: &PgPool, req: &CreateTaskRequest) -> Result<Task,
          VALUES ($1, $2, $3, $4, $5, $6) \
          RETURNING id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done",
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason",
     )
     .bind(req.project_id)
     .bind(req.repository_id)
@@ -135,7 +135,7 @@ pub async fn create_task_from_issue(
          VALUES ($1, $2, $3, $4, $5, $6, 'development', $7) \
          RETURNING id, project_id, repository_id, title, description, status, priority, \
          depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
-         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done",
+         retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason",
     )
     .bind(project_id)
     .bind(repository_id)
@@ -160,7 +160,7 @@ pub async fn update_task(pool: &PgPool, id: Uuid, req: &UpdateTaskRequest) -> Re
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
     .bind(&req.title)
@@ -186,7 +186,7 @@ pub async fn approve_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
     .fetch_one(pool)
@@ -194,20 +194,21 @@ pub async fn approve_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
     .map_err(AppError::from)
 }
 
-pub async fn cancel_task(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
+pub async fn cancel_task(pool: &PgPool, id: Uuid, reason: Option<&str>) -> Result<Task, AppError> {
     let task = get_task(pool, id).await?;
     if task.status == TaskStatus::Completed || task.status == TaskStatus::Cancelled {
         return Err(AppError::Validation("Task is already completed or cancelled".to_string()));
     }
 
     sqlx::query_as::<_, Task>(
-        r#"UPDATE tasks SET status = 'cancelled', updated_at = NOW()
+        r#"UPDATE tasks SET status = 'cancelled', cancel_reason = $2, updated_at = NOW()
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
+    .bind(reason)
     .fetch_one(pool)
     .await
     .map_err(AppError::from)
@@ -250,7 +251,7 @@ pub async fn update_task_execution(
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
     .bind(&status)
@@ -344,7 +345,7 @@ pub async fn approve_plan(pool: &PgPool, id: Uuid) -> Result<Task, AppError> {
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
     .fetch_one(pool)
@@ -369,7 +370,7 @@ pub async fn reject_plan(pool: &PgPool, id: Uuid, action: &str) -> Result<Task, 
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
     .bind(new_status)
@@ -453,7 +454,7 @@ pub async fn request_revision(pool: &PgPool, id: Uuid) -> Result<Task, AppError>
         WHERE id = $1
         RETURNING id, project_id, repository_id, title, description, status, priority,
         depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats,
-        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done"#,
+        retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason"#,
     )
     .bind(id)
     .fetch_one(pool)

@@ -115,10 +115,11 @@ export function SprintPanel({
           {sprint.status !== "completed" && sprint.status !== "failed" && (
             <button
               onClick={async () => {
-                if (!confirm("このスプリントをキャンセルしますか？進行中のタスクも中止されます。")) return;
+                const reason = window.prompt("スプリントをキャンセルしますか？\n進行中のタスクも中止されます。\n\nキャンセル理由（任意）:");
+                if (reason === null) return;
                 setLoading(true);
                 try {
-                  await cancelSprint(sprintId);
+                  await cancelSprint(sprintId, reason || undefined);
                   loadSprint();
                   onRefresh?.();
                 } catch (e) {

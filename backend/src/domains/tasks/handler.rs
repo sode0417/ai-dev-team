@@ -197,8 +197,10 @@ async fn cancel_task(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(id): Path<Uuid>,
+    body: Option<Json<CancelTaskRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let task = service::cancel_task(&state.pool, id).await?;
+    let reason = body.and_then(|b| b.0.reason);
+    let task = service::cancel_task(&state.pool, id, reason.as_deref()).await?;
     Ok(Json(json!({ "data": task })))
 }
 

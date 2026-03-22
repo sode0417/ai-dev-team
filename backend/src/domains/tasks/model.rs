@@ -64,6 +64,7 @@ pub struct Task {
     pub merge_attempted_at: Option<DateTime<Utc>>,
     pub revision_count: i32,
     pub definition_of_done: Option<String>,
+    pub cancel_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -159,4 +160,9 @@ pub struct RejectPlanRequest {
 #[derive(Debug, Deserialize)]
 pub struct RequestRevisionRequest {
     pub instructions: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CancelTaskRequest {
+    pub reason: Option<String>,
 }

@@ -12,3 +12,4 @@ frontend/.env.local
 .vscode/
 *.swp
 .DS_Store
+.worktrees/

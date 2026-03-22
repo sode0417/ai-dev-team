@@ -121,9 +121,10 @@ export function executeTask(id: string, skipHearing?: boolean) {
   });
 }
 
-export function cancelTask(id: string) {
+export function cancelTask(id: string, reason?: string) {
   return request<{ data: import("@/types").Task }>(`/api/tasks/${id}/cancel`, {
     method: "POST",
+    body: JSON.stringify({ reason }),
   });
 }
 
@@ -271,10 +272,10 @@ export function approveSprintPlan(sprintId: string, maxParallelTasks?: number) {
   );
 }
 
-export function cancelSprint(sprintId: string) {
+export function cancelSprint(sprintId: string, reason?: string) {
   return request<{ data: import("@/types").Sprint }>(
     `/api/sprints/${sprintId}/cancel`,
-    { method: "POST" }
+    { method: "POST", body: JSON.stringify({ reason }) }
   );
 }
 

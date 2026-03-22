@@ -65,6 +65,7 @@ export interface Task {
   merge_attempted_at: string | null;
   revision_count: number;
   definition_of_done: string | null;
+  cancel_reason: string | null;
 }
 
 export interface ExecutionSession {

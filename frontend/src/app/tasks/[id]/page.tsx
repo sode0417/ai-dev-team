@@ -118,7 +118,11 @@ export default function TaskDetailPage({
       if (action === "approve") await approveTask(id);
       else if (action === "execute") await executeTask(id, false);
       else if (action === "execute-skip") await executeTask(id, true);
-      else if (action === "cancel") await cancelTask(id);
+      else if (action === "cancel") {
+        const reason = window.prompt("キャンセル理由（任意）:");
+        if (reason === null) return; // ダイアログをキャンセルした場合は何もしない
+        await cancelTask(id, reason || undefined);
+      }
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
@@ -347,7 +351,12 @@ export default function TaskDetailPage({
             </div>
           )}
           {task.status === "cancelled" && (
-            <div className="text-sm text-gh-text-muted">タスクはキャンセルされました</div>
+            <div className="text-sm text-gh-text-muted">
+              <div>タスクはキャンセルされました</div>
+              {task.cancel_reason && (
+                <div className="mt-1 text-gh-text-secondary">理由: {task.cancel_reason}</div>
+              )}
+            </div>
           )}
         </PhaseCard>
       </div>

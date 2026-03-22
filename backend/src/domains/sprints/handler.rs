@@ -306,11 +306,17 @@ async fn approve_plan(
     Ok(Json(json!({ "data": sprint })))
 }
 
+#[derive(Deserialize)]
+struct CancelSprintRequest {
+    reason: Option<String>,
+}
+
 /// POST /api/sprints/{id}/cancel — スプリント強制キャンセル
 async fn cancel_sprint(
     State(state): State<AppState>,
     _auth: AuthUser,
     Path(sprint_id): Path<Uuid>,
+    body: Option<Json<CancelSprintRequest>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let sprint = service::get_sprint(&state.pool, sprint_id).await?;
     let status = SprintStatus::from_str(&sprint.status);
@@ -322,18 +328,22 @@ async fn cancel_sprint(
         ));
     }
 
-    // 紐づくタスクのうち進行中のものを cancelled に
+    let reason = body
+        .and_then(|b| b.0.reason)
+        .unwrap_or_else(|| "ユーザーによるキャンセル".to_string());
+
+    // 紐づくタスクのうち進行中のものを cancelled に（スプリントと同じ理由を記録）
     let tasks = service::get_sprint_tasks(&state.pool, sprint_id).await?;
+    let cascade_reason = format!("スプリントキャンセル: {reason}");
     for task in &tasks {
         if task.status != crate::domains::tasks::model::TaskStatus::Completed
             && task.status != crate::domains::tasks::model::TaskStatus::Failed
             && task.status != crate::domains::tasks::model::TaskStatus::Cancelled
         {
-            let _ = crate::domains::tasks::service::update_task_execution(
+            let _ = crate::domains::tasks::service::cancel_task(
                 &state.pool,
                 task.id,
-                crate::domains::tasks::model::TaskStatus::Cancelled,
-                None, None, None, None, None,
+                Some(&cascade_reason),
             )
             .await;
         }
@@ -343,7 +353,7 @@ async fn cancel_sprint(
     let sprint = service::fail_sprint(
         &state.pool,
         sprint_id,
-        "ユーザーによるキャンセル",
+        &reason,
     )
     .await?;
 

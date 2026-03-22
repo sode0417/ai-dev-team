@@ -11,7 +11,7 @@ const SCAN_COLS: &str = "id, project_id, status, analysis, priority_actions, \
 const TASK_COLS: &str = "id, project_id, repository_id, title, description, status, priority, \
     depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
     retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-    scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done";
+    scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason";
 
 pub async fn create_scan(pool: &PgPool, project_id: Uuid) -> Result<ScanSession, AppError> {
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)")
