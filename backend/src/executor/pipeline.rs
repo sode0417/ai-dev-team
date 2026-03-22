@@ -147,7 +147,14 @@ pub async fn run_pipeline(
         }
     };
 
-    let wt_path = worktree_dir.to_str().unwrap().to_string();
+    let wt_path = match worktree_dir.to_str() {
+        Some(s) => s.to_string(),
+        None => {
+            tracing::error!("Worktree path contains non-UTF-8 characters");
+            let _ = worktree::cleanup_worktree(repo_path, &worktree_dir).await;
+            return;
+        }
+    };
 
     // 実行セッション作成
     let session = match exec_service::create_session(pool, task_id, Some(&wt_path), Some(&branch_name)).await {
@@ -246,7 +253,14 @@ pub async fn run_hearing_phase(
         }
     };
 
-    let wt_path = worktree_dir.to_str().unwrap().to_string();
+    let wt_path = match worktree_dir.to_str() {
+        Some(s) => s.to_string(),
+        None => {
+            tracing::error!("Worktree path contains non-UTF-8 characters");
+            let _ = worktree::cleanup_worktree(repo_path, &worktree_dir).await;
+            return;
+        }
+    };
 
     // セッション作成
     let session = match exec_service::create_session(pool, task_id, Some(&wt_path), Some(&branch_name)).await {

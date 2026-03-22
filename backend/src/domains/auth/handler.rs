@@ -37,7 +37,7 @@ async fn login_rate_limit(
 ) -> Result<impl IntoResponse, AppError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("system clock must not be before UNIX epoch")
         .as_secs();
 
     let window = limiter.window_start.load(Ordering::Relaxed);

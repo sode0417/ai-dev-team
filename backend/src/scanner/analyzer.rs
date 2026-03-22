@@ -348,7 +348,7 @@ async fn run_sprint_execution_inner(
             // タスクの計画承認
             let _ = crate::domains::tasks::service::approve_plan(pool, task.id).await;
 
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let permit = semaphore.clone().acquire_owned().await.expect("semaphore closed unexpectedly");
             let pool = pool.clone();
             let ws_hub = ws_hub.clone();
             let task_id = task.id;

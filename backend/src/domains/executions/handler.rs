@@ -59,8 +59,14 @@ async fn get_screenshot(
     };
 
     let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_TYPE, content_type.parse().unwrap());
-    headers.insert(header::CACHE_CONTROL, "public, max-age=86400".parse().unwrap());
+    headers.insert(
+        header::CONTENT_TYPE,
+        content_type.parse().expect("static content-type must be valid"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        "public, max-age=86400".parse().expect("static cache-control must be valid"),
+    );
 
     Ok((headers, Body::from(bytes)))
 }

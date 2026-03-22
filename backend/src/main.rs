@@ -258,7 +258,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "ai_dev_team=info,tower_http=info".parse().unwrap()),
+                .unwrap_or_else(|_| "ai_dev_team=info,tower_http=info".parse().expect("default EnvFilter must be valid")),
         )
         .init();
 
@@ -361,6 +361,10 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("Listening on {addr}");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Failed to bind TCP listener — is the port already in use?");
+    axum::serve(listener, app)
+        .await
+        .expect("Server terminated unexpectedly");
 }

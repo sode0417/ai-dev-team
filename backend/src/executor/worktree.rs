@@ -20,7 +20,9 @@ pub async fn create_worktree(
     let branch_name = format!("task/{}", task_id);
 
     // .worktrees ディレクトリを作成（ロック不要）
-    tokio::fs::create_dir_all(worktree_dir.parent().unwrap())
+    let parent = worktree_dir.parent()
+        .ok_or_else(|| "worktree path has no parent directory".to_string())?;
+    tokio::fs::create_dir_all(parent)
         .await
         .map_err(|e| format!("Failed to create worktrees dir: {e}"))?;
 
@@ -51,7 +53,8 @@ pub async fn create_worktree(
                 "add",
                 "-b",
                 &branch_name,
-                worktree_dir.to_str().unwrap(),
+                worktree_dir.to_str()
+                    .ok_or_else(|| "worktree path contains non-UTF-8 characters".to_string())?,
                 &format!("origin/{base_branch}"),
             ])
             .current_dir(repo_path)

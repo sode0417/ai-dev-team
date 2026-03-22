@@ -169,7 +169,9 @@ async fn resolve_conflict(
     }
 
     // worktree を PR ブランチで作成
-    tokio::fs::create_dir_all(worktree_dir.parent().unwrap())
+    let parent = worktree_dir.parent()
+        .ok_or_else(|| "worktree path has no parent directory".to_string())?;
+    tokio::fs::create_dir_all(parent)
         .await
         .map_err(|e| format!("ディレクトリ作成失敗: {e}"))?;
 
@@ -177,7 +179,8 @@ async fn resolve_conflict(
         .args([
             "worktree",
             "add",
-            worktree_dir.to_str().unwrap(),
+            worktree_dir.to_str()
+                .ok_or_else(|| "worktree path contains non-UTF-8 characters".to_string())?,
             &format!("origin/{head_ref}"),
             "--detach",
         ])
