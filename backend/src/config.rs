@@ -34,8 +34,15 @@ pub struct Config {
     pub jwt_refresh_expiry_days: i64,
     pub allowed_origins: Vec<String>,
     pub factrail_url: Option<String>,
-    pub factrail_email: Option<String>,
-    pub factrail_password: Option<String>,
+    pub factrail_api_key: Option<String>,
+    // OAuth
+    pub google_client_id: String,
+    pub google_client_secret: String,
+    pub google_callback_url: String,
+    pub web_url: String,
+    pub cookie_domain: String,
+    // API Key (サービス間通信用)
+    pub api_keys: Vec<String>,
 }
 
 impl Config {
@@ -76,8 +83,20 @@ impl Config {
                 .expect("JWT_REFRESH_EXPIRY_DAYS must be a valid i64"),
             allowed_origins,
             factrail_url: env::var("FACTRAIL_URL").ok(),
-            factrail_email: env::var("FACTRAIL_EMAIL").ok(),
-            factrail_password: env::var("FACTRAIL_PASSWORD").ok(),
+            factrail_api_key: env::var("FACTRAIL_API_KEY").ok(),
+            google_client_id: env::var("GOOGLE_CLIENT_ID").unwrap_or_default(),
+            google_client_secret: env::var("GOOGLE_CLIENT_SECRET").unwrap_or_default(),
+            google_callback_url: env::var("GOOGLE_CALLBACK_URL")
+                .unwrap_or_else(|_| "http://localhost:8100/api/auth/google/callback".to_string()),
+            web_url: env::var("WEB_URL")
+                .unwrap_or_else(|_| "http://localhost:3100".to_string()),
+            cookie_domain: env::var("COOKIE_DOMAIN").unwrap_or_default(),
+            api_keys: env::var("API_KEYS")
+                .unwrap_or_default()
+                .split(',')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.trim().to_string())
+                .collect(),
         }
     }
 }

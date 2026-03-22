@@ -37,11 +37,11 @@ fn hash_token(token: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn generate_access_token(user: &User, config: &Config) -> Result<String, AppError> {
+pub fn generate_access_token(user_id: Uuid, username: &str, config: &Config) -> Result<String, AppError> {
     let now = Utc::now();
     let claims = Claims {
-        sub: user.id.to_string(),
-        username: user.username.clone(),
+        sub: user_id.to_string(),
+        username: username.to_string(),
         iat: now.timestamp() as usize,
         exp: (now + Duration::seconds(config.jwt_access_expiry_secs)).timestamp() as usize,
     };
@@ -77,7 +77,7 @@ pub async fn login(
         ));
     }
 
-    let access_token = generate_access_token(&user, config)?;
+    let access_token = generate_access_token(user.id, &user.username, config)?;
     let refresh_token = generate_refresh_token();
     let token_hash = hash_token(&refresh_token);
     let expires_at = Utc::now() + Duration::days(config.jwt_refresh_expiry_days);
@@ -120,7 +120,7 @@ pub async fn refresh(
         .await?
         .ok_or_else(|| AppError::Unauthorized("User not found".to_string()))?;
 
-    let access_token = generate_access_token(&user, config)?;
+    let access_token = generate_access_token(user.id, &user.username, config)?;
     let new_refresh_token = generate_refresh_token();
     let new_token_hash = hash_token(&new_refresh_token);
     let expires_at = Utc::now() + Duration::days(config.jwt_refresh_expiry_days);
@@ -139,6 +139,39 @@ pub async fn refresh(
         refresh_token: new_refresh_token,
         expires_in: config.jwt_access_expiry_secs,
     })
+}
+
+pub async fn upsert_google_user(
+    pool: &PgPool,
+    email: &str,
+    name: Option<&str>,
+) -> Result<User, AppError> {
+    // username で検索（既存ユーザー）
+    let existing: Option<User> = sqlx::query_as("SELECT * FROM users WHERE username = $1")
+        .bind(email)
+        .fetch_optional(pool)
+        .await?;
+
+    if let Some(user) = existing {
+        return Ok(user);
+    }
+
+    // 新規作成（Google OAuth ユーザーはパスワードなし）
+    let user: User = sqlx::query_as(
+        "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING *",
+    )
+    .bind(email)
+    .bind("oauth:google")
+    .fetch_one(pool)
+    .await?;
+
+    tracing::info!(
+        "Created new user via Google OAuth: {} ({})",
+        email,
+        name.unwrap_or("?")
+    );
+
+    Ok(user)
 }
 
 pub async fn get_me(pool: &PgPool, user_id: Uuid) -> Result<MeResponse, AppError> {

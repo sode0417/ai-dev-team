@@ -35,31 +35,63 @@ impl FromRequestParts<AppState> for AuthUser {
             });
         }
 
-        let auth_header = parts
+        // 1. API キー認証 (X-API-Key ヘッダー)
+        if let Some(api_key) = parts
+            .headers
+            .get("X-API-Key")
+            .and_then(|v| v.to_str().ok())
+        {
+            if state.config.api_keys.contains(&api_key.to_string()) {
+                return Ok(AuthUser {
+                    user_id: Uuid::nil(),
+                    username: "service".to_string(),
+                });
+            }
+            return Err(AppError::Unauthorized("Invalid API key".to_string()));
+        }
+
+        // 2. Bearer トークン認証 (Authorization ヘッダー)
+        if let Some(auth_header) = parts
             .headers
             .get("Authorization")
             .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| AppError::Unauthorized("Missing authorization header".to_string()))?;
+        {
+            if let Some(token) = auth_header.strip_prefix("Bearer ") {
+                return validate_jwt(token, &state.config.jwt_secret);
+            }
+        }
 
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .ok_or_else(|| AppError::Unauthorized("Invalid authorization header".to_string()))?;
+        // 3. Cookie 認証 (f2a_token)
+        if let Some(cookie_header) = parts.headers.get("Cookie").and_then(|v| v.to_str().ok()) {
+            for cookie in cookie_header.split(';') {
+                let cookie = cookie.trim();
+                if let Some(token) = cookie.strip_prefix("f2a_token=") {
+                    return validate_jwt(token, &state.config.jwt_secret);
+                }
+            }
+        }
 
-        let token_data = decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(state.config.jwt_secret.as_bytes()),
-            &Validation::default(),
-        )
-        .map_err(|e| AppError::Unauthorized(format!("Invalid token: {e}")))?;
-
-        let user_id = Uuid::parse_str(&token_data.claims.sub)
-            .map_err(|_| AppError::Unauthorized("Invalid token subject".to_string()))?;
-
-        Ok(AuthUser {
-            user_id,
-            username: token_data.claims.username,
-        })
+        Err(AppError::Unauthorized(
+            "No valid authentication found".to_string(),
+        ))
     }
+}
+
+fn validate_jwt(token: &str, secret: &str) -> Result<AuthUser, AppError> {
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|e| AppError::Unauthorized(format!("Invalid token: {e}")))?;
+
+    let user_id = Uuid::parse_str(&token_data.claims.sub)
+        .map_err(|_| AppError::Unauthorized("Invalid token subject".to_string()))?;
+
+    Ok(AuthUser {
+        user_id,
+        username: token_data.claims.username,
+    })
 }
 
 pub fn decode_token(token: &str, secret: &str) -> Result<Claims, AppError> {
