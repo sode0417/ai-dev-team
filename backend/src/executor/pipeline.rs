@@ -6,6 +6,7 @@ use crate::domains::executions::model::ExecutionSession;
 use crate::domains::executions::service as exec_service;
 use crate::domains::tasks::model::{HearingQuestion, TaskStatus};
 use crate::domains::tasks::service as task_service;
+use crate::factrail;
 use crate::ws::WsHub;
 use super::claude_cli;
 use super::claude_cli::ClaudeResult;
@@ -819,6 +820,7 @@ async fn run_coder_to_pr(
     // PR作成タスクではワークツリーを保持（修正依頼に備える）
     // ワークツリーは PR マージ後にバックグラウンドタスクで自動削除される
     ws_hub.remove_channel(&task_id).await;
+    send_task_fact(pool, task_id, "completed").await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
@@ -1122,6 +1124,7 @@ pub async fn run_revision_phase(
     }
 
     ws_hub.remove_channel(&task_id).await;
+    send_task_fact(pool, task_id, "completed").await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
@@ -1142,6 +1145,7 @@ async fn fail_revision(
     broadcast(ws_hub, task_id, "failed", error).await;
     // ワークツリーは保持（再度修正依頼できるように）
     ws_hub.remove_channel(&task_id).await;
+    send_task_fact(pool, task_id, "failed").await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
@@ -1199,6 +1203,7 @@ async fn run_investigation(
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
+    send_task_fact(pool, task_id, "completed").await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
@@ -1256,6 +1261,7 @@ async fn run_operation(
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
+    send_task_fact(pool, task_id, "completed").await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
@@ -1338,7 +1344,61 @@ async fn fail_pipeline(
     }
 
     ws_hub.remove_channel(&task_id).await;
+    send_task_fact(pool, task_id, "failed").await;
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
+}
+
+/// タスク完了/失敗時に Factrail へ Fact を送信
+async fn send_task_fact(pool: &PgPool, task_id: Uuid, status: &str) {
+    let client = match factrail::global() {
+        Some(c) => c,
+        None => return,
+    };
+
+    let task = match task_service::get_task(pool, task_id).await {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+
+    let fact_type = if status == "completed" {
+        "task_completed"
+    } else {
+        "task_failed"
+    };
+
+    let source_url = task.pr_url.as_deref()
+        .or(task.issue_url.as_deref())
+        .unwrap_or("");
+
+    let fact = serde_json::json!({
+        "source": "ai-dev-team",
+        "type": fact_type,
+        "title": format!("[{}] {}", status.to_uppercase(), task.title),
+        "summary": task.description,
+        "metadata": {
+            "task_id": task.id.to_string(),
+            "project_id": task.project_id.to_string(),
+            "proposal_type": task.proposal_type,
+            "pr_url": task.pr_url,
+            "issue_url": task.issue_url,
+            "issue_number": task.issue_number,
+            "diff_stats": task.diff_stats,
+            "revision_count": task.revision_count,
+            "error_log": task.error_log,
+        },
+        "raw": {
+            "task_id": task.id.to_string(),
+            "status": status,
+        },
+        "sourceUrl": source_url,
+        "externalId": format!("ai-dev-team:task:{}", task.id),
+    });
+
+    if let Err(e) = client.send_fact(&fact).await {
+        tracing::warn!("Failed to send fact to Factrail: {e}");
+    } else {
+        tracing::info!("Fact sent to Factrail: task {task_id} {status}");
+    }
 }
 
 async fn broadcast(ws_hub: &WsHub, task_id: Uuid, phase: &str, message: &str) {

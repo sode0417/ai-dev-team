@@ -33,6 +33,9 @@ pub struct Config {
     pub jwt_access_expiry_secs: i64,
     pub jwt_refresh_expiry_days: i64,
     pub allowed_origins: Vec<String>,
+    pub factrail_url: Option<String>,
+    pub factrail_email: Option<String>,
+    pub factrail_password: Option<String>,
 }
 
 impl Config {
@@ -72,6 +75,9 @@ impl Config {
                 .parse()
                 .expect("JWT_REFRESH_EXPIRY_DAYS must be a valid i64"),
             allowed_origins,
+            factrail_url: env::var("FACTRAIL_URL").ok(),
+            factrail_email: env::var("FACTRAIL_EMAIL").ok(),
+            factrail_password: env::var("FACTRAIL_PASSWORD").ok(),
         }
     }
 }

@@ -4,6 +4,7 @@ mod db;
 mod domains;
 mod error;
 mod executor;
+pub mod factrail;
 pub mod github;
 mod response;
 mod scanner;
@@ -29,6 +30,7 @@ pub struct AppState {
     pub config: Config,
     pub ws_hub: WsHub,
     pub github: GitHubClient,
+    pub factrail: Option<factrail::FactrailClient>,
 }
 
 async fn health_check() -> Json<Value> {
@@ -266,12 +268,18 @@ async fn main() {
     let pool = db::create_pool(&config.database_url).await;
     let ws_hub = WsHub::new();
     let github = GitHubClient::new(config.github_token.clone());
+    let factrail = factrail::FactrailClient::from_config(&config);
+    if let Some(ref client) = factrail {
+        factrail::init_global(client.clone());
+        tracing::info!("Factrail integration enabled");
+    }
 
     let state = AppState {
         pool,
         config: config.clone(),
         ws_hub,
         github,
+        factrail,
     };
 
     // 期限切れリフレッシュトークンの定期クリーンアップ（1時間ごと）

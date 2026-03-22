@@ -85,6 +85,9 @@ frontend/
 - `AUTH_ENABLED` — 認証有効化 (`true`/`false`, デフォルト: `false`)
 - `JWT_SECRET` — JWT 署名鍵（AUTH_ENABLED=true 時は必須）
 - `ALLOWED_ORIGINS` — CORS 許可オリジン（カンマ区切り、デフォルト: `http://localhost:3100`）
+- `FACTRAIL_URL` — Factrail API のベース URL（任意、設定時に Fact 送信が有効化）
+- `FACTRAIL_EMAIL` — Factrail ログイン用メールアドレス
+- `FACTRAIL_PASSWORD` — Factrail ログイン用パスワード
 
 ## 開発
 
