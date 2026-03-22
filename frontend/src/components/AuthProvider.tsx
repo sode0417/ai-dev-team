@@ -40,38 +40,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const fetchMe = useCallback(async (): Promise<User | null> => {
+    // 1. localStorage のトークンで認証（従来方式）
     const token = getAccessToken();
-    if (!token) return null;
+    if (token) {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
+        if (res.ok) {
+          const { data } = (await res.json()) as { data: User };
+          return data;
+        }
+
+        if (res.status === 401) {
+          const refreshed = await refreshAccessToken();
+          if (refreshed) {
+            const newToken = getAccessToken();
+            if (newToken) {
+              const retryRes = await fetch(`${API_BASE}/api/auth/me`, {
+                headers: { Authorization: `Bearer ${newToken}` },
+              });
+              if (retryRes.ok) {
+                const { data } = (await retryRes.json()) as { data: User };
+                return data;
+              }
+            }
+          }
+          clearTokens();
+        }
+      } catch {
+        // ネットワークエラー等
+      }
+    }
+
+    // 2. Cookie 認証（Google OAuth / F2A SSO）
     try {
       const res = await fetch(`${API_BASE}/api/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
-
       if (res.ok) {
         const { data } = (await res.json()) as { data: User };
         return data;
       }
-
-      if (res.status === 401) {
-        const refreshed = await refreshAccessToken();
-        if (refreshed) {
-          const newToken = getAccessToken();
-          if (newToken) {
-            const retryRes = await fetch(`${API_BASE}/api/auth/me`, {
-              headers: { Authorization: `Bearer ${newToken}` },
-            });
-            if (retryRes.ok) {
-              const { data } = (await retryRes.json()) as { data: User };
-              return data;
-            }
-          }
-        }
-        clearTokens();
-      }
     } catch {
-      // ネットワークエラー等
+      // Cookie 認証も失敗
     }
+
     return null;
   }, []);
 
