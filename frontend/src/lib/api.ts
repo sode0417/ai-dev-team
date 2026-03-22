@@ -15,7 +15,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" });
 
   // 401 の場合、リフレッシュしてリトライ
   if (res.status === 401 && token) {
@@ -25,7 +25,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       if (newToken) {
         headers["Authorization"] = `Bearer ${newToken}`;
       }
-      res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" });
     } else {
       clearTokens();
       if (typeof window !== "undefined") {
