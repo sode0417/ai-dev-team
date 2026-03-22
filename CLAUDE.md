@@ -117,6 +117,7 @@ psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320000000_revision
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260320100000_auto_merge.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260321000000_definition_of_done.sql
 psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260322000000_cancel_reason.sql
+psql -U ai_dev_team -d ai_dev_team -f backend/migrations/20260323000000_pending_completion.sql
 
 # 認証セットアップ（任意）
 # 1. .env に AUTH_ENABLED=true と JWT_SECRET を設定

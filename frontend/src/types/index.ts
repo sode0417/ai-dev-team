@@ -7,6 +7,7 @@ export type TaskStatus =
   | "awaiting_approval"
   | "executing"
   | "reviewing"
+  | "pending_completion"
   | "completed"
   | "failed"
   | "cancelled"
@@ -66,6 +67,7 @@ export interface Task {
   revision_count: number;
   definition_of_done: string | null;
   cancel_reason: string | null;
+  completion_note: string | null;
 }
 
 export interface ExecutionSession {

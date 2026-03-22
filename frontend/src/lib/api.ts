@@ -154,6 +154,14 @@ export function executeIssue(body: {
   });
 }
 
+// Confirm completion
+export function confirmCompletion(taskId: string, note?: string) {
+  return request<{ data: import("@/types").Task }>(
+    `/api/tasks/${taskId}/confirm-completion`,
+    { method: "POST", body: JSON.stringify({ note: note || null }) }
+  );
+}
+
 // Revision
 export function requestRevision(taskId: string, instructions: string) {
   return request<{ data: import("@/types").Task }>(

@@ -13,6 +13,7 @@ import {
   completeSprint,
   cancelSprint,
   requestRevision,
+  confirmCompletion,
 } from "@/lib/api";
 import { connectSprintWs } from "@/lib/ws";
 import type { SprintWithTasks, Task, SprintWsMessage, ImprovementResultItem } from "@/types";
@@ -59,6 +60,15 @@ export function SprintPanel({
     }
   }, [loadSprint]);
 
+  const handleConfirmCompletion = useCallback(async (taskId: string, note?: string) => {
+    try {
+      await confirmCompletion(taskId, note);
+      loadSprint();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    }
+  }, [loadSprint]);
+
   useEffect(() => {
     loadSprint();
   }, [loadSprint]);
@@ -71,7 +81,7 @@ export function SprintPanel({
         setWsMessages((prev) => [...prev, msg]);
         // フェーズ変更時にリロード
         // "improving" はリアルタイム進捗表示用（WsMessages に蓄積）、"improving_done" で完了リロード
-        if (["completed", "plan_ready", "retrospective", "improving_done", "error", "task_done", "generating_retro"].includes(msg.phase)) {
+        if (["completed", "pending_completion", "plan_ready", "retrospective", "improving_done", "error", "task_done", "generating_retro"].includes(msg.phase)) {
           loadSprint();
           onRefresh?.();
         }
@@ -222,7 +232,7 @@ export function SprintPanel({
       )}
 
       {sprint.status === "executing" && (
-        <ExecutingPhase sprint={sprint} wsMessages={wsMessages} />
+        <ExecutingPhase sprint={sprint} wsMessages={wsMessages} onConfirmCompletion={handleConfirmCompletion} onRevision={handleRevision} />
       )}
 
       {sprint.status === "retrospective" && (
@@ -232,6 +242,7 @@ export function SprintPanel({
           loading={loading}
           onFeedbackChange={setFeedback}
           onRevision={handleRevision}
+          onConfirmCompletion={handleConfirmCompletion}
           onSubmit={async () => {
             setLoading(true);
             try {
@@ -268,7 +279,7 @@ export function SprintPanel({
       )}
 
       {sprint.status === "completed" && (
-        <CompletedPhase sprint={sprint} onRevision={handleRevision} />
+        <CompletedPhase sprint={sprint} onRevision={handleRevision} onConfirmCompletion={handleConfirmCompletion} />
       )}
 
       {sprint.status === "failed" && (
@@ -657,9 +668,9 @@ function RevisionButton({
   const [instructions, setInstructions] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // completed/failed で pr_url があり、improvement/development タイプのタスクのみ
+  // completed/failed/pending_completion で pr_url があり、improvement/development タイプのタスクのみ
   if (
-    !["completed", "failed"].includes(task.status) ||
+    !["completed", "failed", "pending_completion"].includes(task.status) ||
     !task.pr_url ||
     ["investigation", "operation"].includes(task.proposal_type)
   ) {
@@ -715,12 +726,77 @@ function RevisionButton({
   );
 }
 
+function ConfirmCompletionButton({
+  task,
+  onConfirm,
+}: {
+  task: Task;
+  onConfirm: (taskId: string, note?: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  if (task.status !== "pending_completion") return null;
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-gh-green/40 text-gh-green hover:bg-gh-green/10 transition shrink-0"
+      >
+        完了確認
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full mt-2 space-y-2">
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="完了メモ（任意）"
+        rows={2}
+        className="w-full px-3 py-2 bg-gh-canvas border border-gh-border rounded-md text-sm text-gh-text placeholder:text-gh-text-muted focus:outline-none focus:border-gh-green focus:ring-1 focus:ring-gh-green/40 resize-none"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={async () => {
+            setSubmitting(true);
+            try {
+              await onConfirm(task.id, note.trim() || undefined);
+              setOpen(false);
+              setNote("");
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          disabled={submitting}
+          className="px-3 py-1 bg-gh-green/90 text-white rounded-md hover:bg-gh-green transition text-xs font-medium disabled:opacity-50"
+        >
+          {submitting ? "確認中..." : "完了を確定"}
+        </button>
+        <button
+          onClick={() => { setOpen(false); setNote(""); }}
+          className="px-3 py-1 text-gh-text-muted border border-gh-border rounded-md hover:bg-gh-surface transition text-xs"
+        >
+          キャンセル
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ExecutingPhase({
   sprint,
   wsMessages,
+  onConfirmCompletion,
+  onRevision,
 }: {
   sprint: SprintWithTasks;
   wsMessages: SprintWsMessage[];
+  onConfirmCompletion: (taskId: string, note?: string) => Promise<void>;
+  onRevision: (taskId: string, instructions: string) => Promise<void>;
 }) {
   const activeTasks = sprint.tasks.filter((t) => t.status !== "cancelled" && t.status !== "proposed");
 
@@ -762,21 +838,25 @@ function ExecutingPhase({
               </div>
             )}
             {tasks.map((task) => (
-              <div key={task.id} className="px-4 py-3 border-b border-gh-border last:border-0 flex items-center gap-3">
-                <StatusBadge status={task.status} />
-                <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
-                  {task.title}
-                </Link>
-                <RevisionBadge count={task.revision_count} />
-                {task.pr_url && (
-                  <>
-                    <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-gh-link hover:underline shrink-0">
-                      PR
-                    </a>
-                    <MergeStatusBadge status={task.merge_status} />
-                  </>
-                )}
+              <div key={task.id} className="px-4 py-3 border-b border-gh-border last:border-0">
+                <div className="flex items-center gap-3">
+                  <StatusBadge status={task.status} />
+                  <Link href={`/tasks/${task.id}`} className="text-sm text-gh-text hover:text-gh-link transition flex-1 truncate">
+                    {task.title}
+                  </Link>
+                  <RevisionBadge count={task.revision_count} />
+                  {task.pr_url && (
+                    <>
+                      <a href={task.pr_url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-gh-link hover:underline shrink-0">
+                        PR
+                      </a>
+                      <MergeStatusBadge status={task.merge_status} />
+                    </>
+                  )}
+                  <ConfirmCompletionButton task={task} onConfirm={onConfirmCompletion} />
+                  <RevisionButton task={task} onRevision={onRevision} />
+                </div>
               </div>
             ))}
           </div>
@@ -805,6 +885,7 @@ function RetrospectivePhase({
   loading,
   onFeedbackChange,
   onRevision,
+  onConfirmCompletion,
   onSubmit,
 }: {
   sprint: SprintWithTasks;
@@ -812,9 +893,10 @@ function RetrospectivePhase({
   loading: boolean;
   onFeedbackChange: (v: string) => void;
   onRevision: (taskId: string, instructions: string) => Promise<void>;
+  onConfirmCompletion: (taskId: string, note?: string) => Promise<void>;
   onSubmit: () => void;
 }) {
-  const completed = sprint.tasks.filter((t) => t.status === "completed");
+  const completed = sprint.tasks.filter((t) => t.status === "completed" || t.status === "pending_completion");
   const failed = sprint.tasks.filter((t) => t.status === "failed");
 
   return (
@@ -866,6 +948,7 @@ function RetrospectivePhase({
                     PR
                   </a>
                 )}
+                <ConfirmCompletionButton task={task} onConfirm={onConfirmCompletion} />
                 <RevisionButton task={task} onRevision={onRevision} />
               </div>
             </div>
@@ -1045,11 +1128,13 @@ function ImprovingPhase({
 function CompletedPhase({
   sprint,
   onRevision,
+  onConfirmCompletion,
 }: {
   sprint: SprintWithTasks;
   onRevision: (taskId: string, instructions: string) => Promise<void>;
+  onConfirmCompletion: (taskId: string, note?: string) => Promise<void>;
 }) {
-  const completed = sprint.tasks.filter((t) => t.status === "completed");
+  const completed = sprint.tasks.filter((t) => t.status === "completed" || t.status === "pending_completion");
   const failed = sprint.tasks.filter((t) => t.status === "failed");
 
   return (
@@ -1097,6 +1182,7 @@ function CompletedPhase({
                     <MergeStatusBadge status={task.merge_status} />
                   </>
                 )}
+                <ConfirmCompletionButton task={task} onConfirm={onConfirmCompletion} />
                 <RevisionButton task={task} onRevision={onRevision} />
               </div>
             </div>
