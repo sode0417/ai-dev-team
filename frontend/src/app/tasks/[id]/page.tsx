@@ -11,6 +11,7 @@ import {
   approveTask,
   executeTask,
   cancelTask,
+  updateTask,
   API_BASE,
 } from "@/lib/api";
 import { connectTaskWs } from "@/lib/ws";
@@ -228,25 +229,7 @@ export default function TaskDetailPage({
       </div>
 
       {/* ─── Definition of Done ─── */}
-      {task.definition_of_done && (
-        <div className="mb-5 rounded-lg border border-gh-border bg-gh-surface/50 overflow-hidden">
-          <button
-            onClick={() => {
-              const el = document.getElementById("dod-body");
-              if (el) el.classList.toggle("hidden");
-            }}
-            className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-gh-text-secondary hover:bg-gh-overlay transition cursor-pointer"
-          >
-            <span>完了条件 (Definition of Done)</span>
-            <svg className="w-4 h-4 text-gh-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          <div id="dod-body" className="px-4 py-3 border-t border-gh-border/50">
-            <DoDChecklist dod={task.definition_of_done} />
-          </div>
-        </div>
-      )}
+      <DoDSection task={task} onUpdate={load} />
 
       {error && <div className="text-gh-red mb-4 text-sm">{error}</div>}
 
@@ -676,6 +659,104 @@ function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+function DoDSection({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [dodText, setDodText] = useState(task.definition_of_done || "");
+  const [saving, setSaving] = useState(false);
+
+  const canEdit = ["proposed", "approved", "hearing"].includes(task.status);
+  const hasDod = !!task.definition_of_done;
+
+  useEffect(() => {
+    setDodText(task.definition_of_done || "");
+  }, [task.definition_of_done]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateTask(task.id, { definition_of_done: dodText });
+      setEditing(false);
+      onUpdate();
+    } catch {
+      // エラーは親で処理
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!hasDod && !canEdit) return null;
+
+  return (
+    <div className="mb-5 rounded-lg border border-gh-border bg-gh-surface/50 overflow-hidden">
+      <button
+        onClick={() => {
+          const el = document.getElementById("dod-body");
+          if (el) el.classList.toggle("hidden");
+        }}
+        className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium text-gh-text-secondary hover:bg-gh-overlay transition cursor-pointer"
+      >
+        <span>完了条件 (Definition of Done)</span>
+        <div className="flex items-center gap-2">
+          {canEdit && !editing && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditing(true);
+                // 展開
+                const el = document.getElementById("dod-body");
+                if (el) el.classList.remove("hidden");
+              }}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-gh-border text-gh-text-muted hover:text-gh-text hover:border-gh-text-muted transition"
+            >
+              編集
+            </span>
+          )}
+          <svg className="w-4 h-4 text-gh-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+      <div id="dod-body" className="px-4 py-3 border-t border-gh-border/50">
+        {editing ? (
+          <div className="space-y-2">
+            <textarea
+              value={dodText}
+              onChange={(e) => setDodText(e.target.value)}
+              rows={6}
+              placeholder="- [ ] 条件1&#10;- [ ] 条件2&#10;- [ ] 条件3"
+              className="w-full bg-gh-canvas border border-gh-border rounded-md px-3 py-2 text-sm text-gh-text font-mono resize-y focus:outline-none focus:border-gh-blue/50"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-3 py-1 rounded-md text-sm font-medium bg-gh-green/90 text-white hover:bg-gh-green disabled:opacity-50 transition"
+              >
+                {saving ? "保存中..." : "保存"}
+              </button>
+              <button
+                onClick={() => {
+                  setEditing(false);
+                  setDodText(task.definition_of_done || "");
+                }}
+                className="px-3 py-1 rounded-md text-sm font-medium border border-gh-border text-gh-text-secondary hover:bg-gh-overlay transition"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        ) : hasDod ? (
+          <DoDChecklist dod={task.definition_of_done!} />
+        ) : (
+          <div className="text-sm text-gh-text-muted">
+            完了条件が設定されていません。「編集」ボタンから追加できます。
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

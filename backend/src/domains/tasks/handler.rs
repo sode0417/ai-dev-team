@@ -138,6 +138,13 @@ async fn execute_task(
         )));
     }
 
+    // スキャン提案タスクは DoD 必須
+    if task.proposed_by == "scan" && task.definition_of_done.as_ref().map_or(true, |d| d.trim().is_empty()) {
+        return Err(AppError::Validation(
+            "スキャン提案タスクには完了条件 (Definition of Done) が必要です".to_string(),
+        ));
+    }
+
     // リポジトリ情報を取得
     let repo_id = task.repository_id.ok_or_else(|| {
         AppError::Validation("Task must have a repository to execute".to_string())

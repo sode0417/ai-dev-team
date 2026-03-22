@@ -108,6 +108,18 @@ export function createTask(body: {
   });
 }
 
+export function updateTask(id: string, body: {
+  title?: string;
+  description?: string;
+  priority?: string;
+  definition_of_done?: string;
+}) {
+  return request<{ data: import("@/types").Task }>(`/api/tasks/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
 export function approveTask(id: string) {
   return request<{ data: import("@/types").Task }>(`/api/tasks/${id}/approve`, {
     method: "POST",
