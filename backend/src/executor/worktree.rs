@@ -116,6 +116,72 @@ pub async fn has_changes(worktree_path: &str) -> Result<bool, String> {
     Ok(!output.stdout.is_empty())
 }
 
+/// 不要ファイルを除外してステージングする
+async fn stage_changes(worktree_path: &str) -> Result<(), String> {
+    // tracked の変更ファイル
+    let tracked = Command::new("git")
+        .args(["diff", "--name-only", "HEAD"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git diff --name-only failed: {e}"))?;
+
+    // untracked ファイル
+    let untracked = Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git ls-files failed: {e}"))?;
+
+    let tracked_str = String::from_utf8_lossy(&tracked.stdout);
+    let untracked_str = String::from_utf8_lossy(&untracked.stdout);
+
+    let files: Vec<&str> = tracked_str
+        .lines()
+        .chain(untracked_str.lines())
+        .filter(|f| !f.is_empty())
+        .filter(|f| !is_excluded(f))
+        .collect();
+
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    let add = Command::new("git")
+        .arg("add")
+        .args(&files)
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git add failed: {e}"))?;
+
+    if !add.status.success() {
+        return Err(format!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&add.stderr)
+        ));
+    }
+
+    Ok(())
+}
+
+/// 除外パターンに該当するか判定
+fn is_excluded(path: &str) -> bool {
+    const EXCLUDED_PATTERNS: &[&str] = &[
+        ".playwright-mcp/",
+        "data/qa-screenshots/",
+        "package-lock.json",
+    ];
+    EXCLUDED_PATTERNS.iter().any(|pat| {
+        if pat.ends_with('/') {
+            path.starts_with(pat) || path.contains(&format!("/{pat}"))
+        } else {
+            path == *pat || path.ends_with(&format!("/{pat}"))
+        }
+    })
+}
+
 /// git commit + push + gh pr create
 pub async fn commit_and_create_pr(
     worktree_path: &str,
@@ -123,19 +189,8 @@ pub async fn commit_and_create_pr(
     title: &str,
     body: &str,
 ) -> Result<String, String> {
-    // git add
-    let add = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(worktree_path)
-        .output()
-        .await
-        .map_err(|e| format!("git add failed: {e}"))?;
-    if !add.status.success() {
-        return Err(format!(
-            "git add failed: {}",
-            String::from_utf8_lossy(&add.stderr)
-        ));
-    }
+    // git add（不要ファイル除外）
+    stage_changes(worktree_path).await?;
 
     // git commit
     let commit = Command::new("git")
@@ -220,19 +275,8 @@ pub async fn commit_and_push(
     branch_name: &str,
     message: &str,
 ) -> Result<(), String> {
-    // git add
-    let add = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(worktree_path)
-        .output()
-        .await
-        .map_err(|e| format!("git add failed: {e}"))?;
-    if !add.status.success() {
-        return Err(format!(
-            "git add failed: {}",
-            String::from_utf8_lossy(&add.stderr)
-        ));
-    }
+    // git add（不要ファイル除外）
+    stage_changes(worktree_path).await?;
 
     // git commit
     let commit = Command::new("git")
@@ -282,6 +326,18 @@ pub async fn check_pr_closed_or_merged(pr_url: &str) -> Result<bool, String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.contains("MERGED") || stdout.contains("CLOSED"))
+}
+
+/// commit 前の diff 統計情報を取得（staged + unstaged）
+pub async fn get_diff_stats_unstaged(worktree_path: &str) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(["diff", "--stat", "HEAD"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .map_err(|e| format!("git diff --stat failed: {e}"))?;
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 /// diff の統計情報を取得

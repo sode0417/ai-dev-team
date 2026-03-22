@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::timeout;
+use crate::domains::executions::model::ExecutionSession;
 use crate::domains::executions::service as exec_service;
 use crate::domains::tasks::model::{HearingQuestion, TaskStatus};
 use crate::domains::tasks::service as task_service;
@@ -9,6 +10,58 @@ use crate::ws::WsHub;
 use super::claude_cli;
 use super::claude_cli::ClaudeResult;
 use super::worktree;
+
+/// 出力テキストを指定文字数で切り詰める
+fn truncate(s: &str, max_chars: usize) -> &str {
+    if s.len() <= max_chars {
+        s
+    } else {
+        // UTF-8 境界を安全に扱う
+        let mut end = max_chars;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
+    }
+}
+
+/// セッションの各フェーズ結果から PR 本文を構築
+fn build_pr_body(description: &str, diff_stats: &str, session: Option<&ExecutionSession>) -> String {
+    let mut body = format!("## 概要\n{description}\n");
+
+    if !diff_stats.trim().is_empty() {
+        body.push_str(&format!("\n## 変更内容\n```\n{}\n```\n", diff_stats.trim()));
+    }
+
+    if let Some(s) = session {
+        // テスト結果
+        if let Some(passed) = s.test_passed {
+            let verdict = if passed { "PASS" } else { "FAIL" };
+            body.push_str(&format!("\n## テスト結果\n- テスト: **{verdict}**\n"));
+            if let Some(ref output) = s.test_output {
+                let summary = truncate(output.trim(), 500);
+                body.push_str(&format!("\n<details><summary>テスト出力</summary>\n\n```\n{summary}\n```\n</details>\n"));
+            }
+        }
+
+        // QA 結果
+        if let Some(passed) = s.qa_passed {
+            let verdict = if passed { "PASS" } else { "FAIL" };
+            body.push_str(&format!("\n## QA 確認\n- QA: **{verdict}**\n"));
+        }
+
+        // レビュー結果
+        if let Some(ref verdict) = s.review_verdict {
+            body.push_str(&format!("\n## レビュー\n- Review: **{verdict}**\n"));
+            if let Some(ref output) = s.review_output {
+                let summary = truncate(output.trim(), 500);
+                body.push_str(&format!("\n<details><summary>レビュー出力</summary>\n\n```\n{summary}\n```\n</details>\n"));
+            }
+        }
+    }
+
+    body
+}
 
 /// DoD セクションを構築（プロンプト注入用）
 fn build_dod_section(definition_of_done: &Option<String>) -> String {
@@ -721,7 +774,12 @@ async fn run_coder_to_pr(
         let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
         broadcast(ws_hub, task_id, "completed", "完了（変更なし）").await;
     } else {
-        let pr_body = format!("## タスク\n{description}\n\n## 計画\n{plan}");
+        // commit 前に diff stats を取得
+        let diff_stats = worktree::get_diff_stats_unstaged(wt_path).await.unwrap_or_default();
+
+        // session から各フェーズの結果を取得して PR 本文を構築
+        let session_data = exec_service::get_session(pool, session_id).await.ok();
+        let pr_body = build_pr_body(description, &diff_stats, session_data.as_ref());
 
         match worktree::commit_and_create_pr(wt_path, branch_name, title, &pr_body).await {
             Ok(pr_url) => {
@@ -1308,7 +1366,7 @@ fn parse_verdict(output: &str) -> String {
             }
         }
     }
-    "APPROVE".to_string() // デフォルトは APPROVE
+    "REQUEST_CHANGES".to_string() // デフォルトは安全側（パース失敗時）
 }
 
 fn parse_test_verdict(output: &str) -> String {
@@ -1323,7 +1381,7 @@ fn parse_test_verdict(output: &str) -> String {
             }
         }
     }
-    "PASS".to_string() // デフォルトは PASS
+    "FAIL".to_string() // デフォルトは安全側（パース失敗時）
 }
 
 /// Claude 出力から JSON 形式の質問リストをパース
@@ -1361,7 +1419,7 @@ fn parse_qa_verdict(output: &str) -> String {
             }
         }
     }
-    "PASS".to_string() // デフォルトは PASS
+    "FAIL".to_string() // デフォルトは安全側（パース失敗時）
 }
 
 /// フロントエンド関連の変更があるか判定

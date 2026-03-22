@@ -5,6 +5,19 @@ use uuid::Uuid;
 use crate::error::AppError;
 use super::model::*;
 
+pub async fn get_session(pool: &PgPool, session_id: Uuid) -> Result<ExecutionSession, AppError> {
+    Ok(sqlx::query_as::<_, ExecutionSession>(
+        "SELECT id, task_id, attempt, status, worktree_path, branch_name, \
+         plan_output, review_output, review_verdict, test_output, test_passed, \
+         qa_output, qa_passed, qa_screenshots, \
+         revision_instructions, started_at, completed_at \
+         FROM execution_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 pub async fn list_sessions(pool: &PgPool, task_id: Uuid) -> Result<Vec<ExecutionSession>, AppError> {
     Ok(sqlx::query_as::<_, ExecutionSession>(
         "SELECT id, task_id, attempt, status, worktree_path, branch_name, \
