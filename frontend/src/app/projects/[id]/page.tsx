@@ -155,8 +155,20 @@ export default function ProjectDetailPage({
         </button>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === "repositories" && (
+      {/* Tab Content — hidden で切り替え（タブ切替時の再フェッチを防止） */}
+      <div className={activeTab !== "sprint" ? "hidden" : undefined}>
+        <SprintTab
+          sprints={sprints}
+          activeSprintId={activeSprintId}
+          onRefresh={() => { loadTasks(); loadSprints(); }}
+        />
+      </div>
+
+      <div className={activeTab !== "tasks" ? "hidden" : undefined}>
+        <TasksTab tasks={tasks} activeSprintId={activeSprintId} onRefresh={loadTasks} />
+      </div>
+
+      <div className={activeTab !== "repositories" ? "hidden" : undefined}>
         <RepositoriesTab
           projectId={id}
           repositories={project.repositories}
@@ -187,19 +199,7 @@ export default function ProjectDetailPage({
             }
           }}
         />
-      )}
-
-      {activeTab === "tasks" && (
-        <TasksTab tasks={tasks} activeSprintId={activeSprintId} onRefresh={loadTasks} />
-      )}
-
-      {activeTab === "sprint" && (
-        <SprintTab
-          sprints={sprints}
-          activeSprintId={activeSprintId}
-          onRefresh={() => { loadTasks(); loadSprints(); }}
-        />
-      )}
+      </div>
     </div>
   );
 }
