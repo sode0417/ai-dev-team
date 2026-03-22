@@ -85,6 +85,12 @@ frontend/
 - `AUTH_ENABLED` — 認証有効化 (`true`/`false`, デフォルト: `false`)
 - `JWT_SECRET` — JWT 署名鍵（AUTH_ENABLED=true 時は必須）
 - `ALLOWED_ORIGINS` — CORS 許可オリジン（カンマ区切り、デフォルト: `http://localhost:3100`）
+- `GOOGLE_CLIENT_ID` — Google OAuth クライアント ID（任意）
+- `GOOGLE_CLIENT_SECRET` — Google OAuth クライアントシークレット
+- `GOOGLE_CALLBACK_URL` — Google OAuth コールバック URL（デフォルト: `http://localhost:8100/api/auth/google/callback`）
+- `WEB_URL` — フロントエンド URL（OAuth コールバック後のリダイレクト先、デフォルト: `http://localhost:3100`）
+- `COOKIE_DOMAIN` — JWT Cookie のドメイン（SSO 用、例: `.sode-ai.com`）
+- `API_KEYS` — サービス間通信用 API キー（カンマ区切り）
 - `FACTRAIL_URL` — Factrail API のベース URL（任意、設定時に Fact 送信が有効化）
 - `FACTRAIL_API_KEY` — Factrail サービス間認証用 API キー
 
@@ -130,5 +136,5 @@ cargo run --bin seed_user -- <username> <password>
 - **Phase 1**: Web UI + 手動タスク作成 + claude -p 実行 ✅
 - **Phase 2**: PM Agent スプリントサイクル + GitHub 連携 ✅
 - **Phase 3**: execution_group による並列/直列実行制御 ✅
-- **Phase 4 (現在)**: Claude Code Agent Teams 統合
+- **Phase 4 (現在)**: F2A 統一認証基盤 + Factrail 連携 + UX 改善
 - **Phase 5**: ai-assistant (秘書) API 連携
