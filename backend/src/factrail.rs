@@ -44,7 +44,7 @@ impl FactrailClient {
         let res = self
             .client
             .post(format!("{}/api/facts", self.base_url))
-            .bearer_auth(&self.api_key)
+            .header("X-API-Key", &self.api_key)
             .json(fact)
             .send()
             .await
