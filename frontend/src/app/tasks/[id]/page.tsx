@@ -23,24 +23,32 @@ import { Markdown } from "@/components/Markdown";
 
 /* ─── Phase definitions ─── */
 
-const PHASE_ORDER = ["hearing", "planning", "awaiting_approval", "executing", "reviewing", "qa", "completed", "failed"] as const;
+const PHASE_ORDER = ["hearing", "planning", "awaiting_approval", "coding", "testing", "reviewing", "qa", "completed", "failed"] as const;
 
 type PhaseName = (typeof PHASE_ORDER)[number];
 
 const PHASE_META: Record<string, { icon: string; label: string; color: string }> = {
-  hearing:            { icon: "💬", label: "ヒアリング",   color: "gh-orange" },
-  planning:           { icon: "📋", label: "計画",         color: "gh-orange" },
-  awaiting_approval:  { icon: "✋", label: "承認待ち",     color: "gh-orange" },
-  executing:          { icon: "⚡", label: "実行",         color: "gh-blue" },
-  reviewing:          { icon: "🔍", label: "レビュー",     color: "gh-purple" },
-  qa:                 { icon: "🧪", label: "QA",           color: "gh-purple" },
-  completed:          { icon: "✅", label: "完了",         color: "gh-green" },
-  failed:             { icon: "❌", label: "失敗",         color: "gh-red" },
+  hearing:            { icon: "💬", label: "ヒアリング",     color: "gh-orange" },
+  planning:           { icon: "📋", label: "計画",           color: "gh-orange" },
+  awaiting_approval:  { icon: "✋", label: "計画（承認待ち）", color: "gh-orange" },
+  coding:             { icon: "⚡", label: "コーディング",   color: "gh-blue" },
+  testing:            { icon: "🧪", label: "テスト",         color: "gh-blue" },
+  reviewing:          { icon: "🔍", label: "レビュー",       color: "gh-purple" },
+  qa:                 { icon: "🖥️", label: "QA",             color: "gh-purple" },
+  completed:          { icon: "✅", label: "完了",           color: "gh-green" },
+  failed:             { icon: "❌", label: "失敗",           color: "gh-red" },
 };
 
 function phaseIndex(phase: string): number {
-  const idx = PHASE_ORDER.indexOf(phase as PhaseName);
+  // バックエンドのステータスをカード用フェーズに変換
+  const mapped = phase === "executing" ? "coding" : phase;
+  const idx = PHASE_ORDER.indexOf(mapped as PhaseName);
   return idx >= 0 ? idx : -1;
+}
+
+/** バックエンドのステータスをカード表示用フェーズに変換 */
+function toCardPhase(status: string): string {
+  return status === "executing" ? "coding" : status;
 }
 
 /* ─── Main page ─── */
@@ -134,6 +142,7 @@ export default function TaskDetailPage({
 
   const currentPhase = task.status;
   const isTerminal = ["completed", "failed", "cancelled"].includes(currentPhase);
+  const latestSession = sessions.length > 0 ? sessions[0] : null;
 
   // ログから各フェーズの最初の時刻を取得
   const phaseTimestamps: Record<string, string> = {};
@@ -240,8 +249,6 @@ export default function TaskDetailPage({
           phase="hearing"
           currentPhase={currentPhase}
           show={hearings.length > 0 || currentPhase === "hearing"}
-          collapsible={currentPhase !== "hearing" && hearings.length > 0}
-          defaultCollapsed={currentPhase !== "hearing"}
           timestamp={phaseTimestamps["hearing"] || (hearings.length > 0 ? hearings[0].created_at : null)}
         >
           {currentPhase === "hearing" && hearings.length > 0 ? (
@@ -256,8 +263,6 @@ export default function TaskDetailPage({
           phase={currentPhase === "awaiting_approval" ? "awaiting_approval" : "planning"}
           currentPhase={currentPhase}
           show={phaseIndex(currentPhase) >= phaseIndex("planning") || !!task.plan}
-          collapsible={!!task.plan && phaseIndex(currentPhase) > phaseIndex("awaiting_approval")}
-          defaultCollapsed={isTerminal}
           timestamp={phaseTimestamps["planner"]}
         >
           {currentPhase === "planning" && !task.plan && (
@@ -275,53 +280,84 @@ export default function TaskDetailPage({
           )}
         </PhaseCard>
 
-        {/* Execution Card */}
+        {/* Coding Card */}
         <PhaseCard
-          phase="executing"
+          phase="coding"
           currentPhase={currentPhase}
-          show={phaseIndex(currentPhase) >= phaseIndex("executing")}
+          show={phaseIndex(currentPhase) >= phaseIndex("coding")}
           timestamp={phaseTimestamps["coder"]}
         >
-          {(currentPhase === "executing" || currentPhase === "reviewing") && (
+          {currentPhase === "executing" && (
             <LiveProgress messages={wsMessages} logs={logs} />
+          )}
+          {currentPhase !== "executing" && task.changed_files && (
+            <div>
+              <ul className="text-sm font-mono space-y-0.5">
+                {(task.changed_files as string[]).map((f, i) => (
+                  <li key={i} className="text-gh-text-secondary">{f}</li>
+                ))}
+              </ul>
+              {task.diff_stats && (
+                <pre className="mt-2 text-xs text-gh-text-muted">{task.diff_stats}</pre>
+              )}
+            </div>
           )}
         </PhaseCard>
 
+        {/* Test Card */}
+        {latestSession?.test_passed != null && (
+          <PhaseCard
+            phase="testing"
+            currentPhase={currentPhase}
+            show={true}
+            timestamp={phaseTimestamps["test"]}
+            resultBadge={{ label: latestSession.test_passed ? "PASS" : "FAIL", passed: latestSession.test_passed }}
+          >
+            {latestSession.test_output && (
+              <pre className="text-xs font-mono text-gh-text-secondary whitespace-pre-wrap max-h-60 overflow-auto">
+                {latestSession.test_output}
+              </pre>
+            )}
+          </PhaseCard>
+        )}
+
         {/* Review Card */}
-        {sessions.length > 0 && sessions[0].review_output && (
+        {latestSession?.review_verdict && (
           <PhaseCard
             phase="reviewing"
             currentPhase={currentPhase}
             show={true}
             timestamp={phaseTimestamps["reviewer"]}
+            resultBadge={{ label: latestSession.review_verdict, passed: latestSession.review_verdict === "APPROVE" }}
           >
-            <div className="text-sm">
-              <span className={`font-medium ${sessions[0].review_verdict === "APPROVE" ? "text-gh-green" : "text-gh-orange"}`}>
-                Verdict: {sessions[0].review_verdict}
-              </span>
-            </div>
+            {latestSession.review_output && (
+              <pre className="text-xs font-mono text-gh-text-secondary whitespace-pre-wrap max-h-60 overflow-auto">
+                {latestSession.review_output}
+              </pre>
+            )}
           </PhaseCard>
         )}
 
         {/* QA Card */}
-        {sessions.length > 0 && sessions[0].qa_output && (
+        {latestSession?.qa_passed != null && (
           <PhaseCard
             phase="qa"
             currentPhase={currentPhase}
             show={true}
             timestamp={phaseTimestamps["qa"]}
+            resultBadge={{ label: latestSession.qa_passed ? "PASS" : "FAIL", passed: latestSession.qa_passed }}
           >
             <div className="space-y-3">
-              <div className="text-sm">
-                <span className={`font-medium ${sessions[0].qa_passed ? "text-gh-green" : "text-gh-orange"}`}>
-                  QA Verdict: {sessions[0].qa_passed ? "PASS" : "FAIL"}
-                </span>
-              </div>
-              {sessions[0].qa_screenshots && sessions[0].qa_screenshots.length > 0 && (
+              {latestSession.qa_output && (
+                <pre className="text-xs font-mono text-gh-text-secondary whitespace-pre-wrap max-h-60 overflow-auto">
+                  {latestSession.qa_output}
+                </pre>
+              )}
+              {latestSession.qa_screenshots && latestSession.qa_screenshots.length > 0 && (
                 <div className="space-y-2">
                   <div className="text-xs text-gh-text-muted font-medium">スクリーンショット</div>
                   <div className="grid grid-cols-2 gap-2">
-                    {sessions[0].qa_screenshots.map((filename, i) => (
+                    {latestSession.qa_screenshots.map((filename, i) => (
                       <a
                         key={i}
                         href={`${API_BASE}/api/tasks/${task.id}/screenshots/${filename}`}
@@ -346,7 +382,7 @@ export default function TaskDetailPage({
           </PhaseCard>
         )}
 
-        {/* Completed Card */}
+        {/* Completed / Failed / Cancelled Card */}
         <PhaseCard
           phase={task.status === "failed" ? "failed" : "completed"}
           currentPhase={currentPhase}
@@ -357,9 +393,9 @@ export default function TaskDetailPage({
             <CompletedCard task={task} />
           )}
           {task.status === "failed" && task.error_log && (
-            <div className="text-sm text-gh-red whitespace-pre-wrap font-mono text-xs">
+            <pre className="text-xs text-gh-red whitespace-pre-wrap font-mono max-h-60 overflow-auto">
               {task.error_log}
-            </div>
+            </pre>
           )}
           {task.status === "cancelled" && (
             <div className="text-sm text-gh-text-muted">
@@ -371,20 +407,6 @@ export default function TaskDetailPage({
           )}
         </PhaseCard>
       </div>
-
-      {/* ─── Changed Files ─── */}
-      {task.changed_files && (
-        <Accordion title="変更ファイル" defaultOpen={true} className="mt-3">
-          <ul className="text-sm font-mono space-y-0.5">
-            {(task.changed_files as string[]).map((f, i) => (
-              <li key={i} className="text-gh-text-secondary">{f}</li>
-            ))}
-          </ul>
-          {task.diff_stats && (
-            <pre className="mt-2 text-xs text-gh-text-muted">{task.diff_stats}</pre>
-          )}
-        </Accordion>
-      )}
     </div>
   );
 }
@@ -405,31 +427,32 @@ function PhaseCard({
   currentPhase,
   show,
   children,
-  collapsible = false,
-  defaultCollapsed = false,
   timestamp,
+  resultBadge,
 }: {
   phase: string;
   currentPhase: string;
   show: boolean;
   children: React.ReactNode;
-  collapsible?: boolean;
-  defaultCollapsed?: boolean;
   timestamp?: string | null;
+  resultBadge?: { label: string; passed: boolean } | null;
 }) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-
-  if (!show) return null;
-
+  const cardPhase = toCardPhase(currentPhase);
   const meta = PHASE_META[phase] || { icon: "•", label: phase, color: "gh-text-muted" };
   const styles = PHASE_ACTIVE_STYLES[meta.color] || PHASE_ACTIVE_STYLES["gh-text-muted"];
   const isTerminalPhase = phase === "completed" || phase === "failed";
-  const isActive = !isTerminalPhase && currentPhase === phase;
+  const isActive = !isTerminalPhase && cardPhase === phase;
   const isDone = isTerminalPhase
-    ? currentPhase === phase
-    : phaseIndex(currentPhase) > phaseIndex(phase);
+    ? cardPhase === phase
+    : phaseIndex(cardPhase) > phaseIndex(phase);
 
-  const showBody = children && (!collapsible || !collapsed);
+  // アクティブフェーズはデフォルト展開、完了フェーズはデフォルト折りたたみ
+  const [collapsed, setCollapsed] = useState(!isActive);
+  const hasContent = !!children;
+  const collapsible = hasContent && !isActive;
+  const showBody = hasContent && (isActive || !collapsed);
+
+  if (!show) return null;
 
   return (
     <div
@@ -439,7 +462,7 @@ function PhaseCard({
           : isTerminalPhase && isDone
           ? `${styles.border} ${styles.bg}`
           : isDone
-          ? "border-gh-border bg-gh-surface/50 opacity-80"
+          ? "border-gh-border bg-gh-surface/50"
           : "border-gh-border bg-gh-surface/30"
       }`}
     >
@@ -459,19 +482,29 @@ function PhaseCard({
         <span className={`text-sm font-medium ${isActive ? styles.text : "text-gh-text-secondary"}`}>
           {meta.label}
         </span>
+        {resultBadge && (
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+            resultBadge.passed
+              ? "bg-gh-green/15 text-gh-green"
+              : "bg-gh-red/15 text-gh-red"
+          }`}>
+            {resultBadge.label}
+          </span>
+        )}
+        <span className="flex-1" />
         {timestamp && (
-          <span className="ml-auto text-[10px] text-gh-text-muted">
+          <span className="text-[10px] text-gh-text-muted">
             {new Date(timestamp).toLocaleTimeString("ja-JP")}
           </span>
         )}
         {isActive && (
-          <span className={`${timestamp ? "" : "ml-auto"} text-[10px] px-1.5 py-0.5 rounded-full ${styles.badge} font-medium`}>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${styles.badge} font-medium`}>
             進行中
           </span>
         )}
         {collapsible && (
           <svg
-            className={`w-4 h-4 ml-auto text-gh-text-muted transition-transform ${collapsed ? "" : "rotate-180"}`}
+            className={`w-4 h-4 text-gh-text-muted transition-transform ${collapsed ? "" : "rotate-180"}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -485,47 +518,6 @@ function PhaseCard({
       {/* Card body */}
       {showBody && (
         <div className="px-4 py-3">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── Accordion ─── */
-
-function Accordion({
-  title,
-  defaultOpen,
-  className,
-  children,
-}: {
-  title: string;
-  defaultOpen: boolean;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-
-  return (
-    <div className={`rounded-lg border border-gh-border overflow-hidden ${className || ""}`}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-2.5 bg-gh-surface hover:bg-gh-overlay transition text-sm font-medium text-gh-text-secondary cursor-pointer"
-      >
-        <span>{title}</span>
-        <svg
-          className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-4 py-3 border-t border-gh-border">
           {children}
         </div>
       )}
