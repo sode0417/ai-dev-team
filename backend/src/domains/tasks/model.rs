@@ -15,6 +15,7 @@ pub enum TaskStatus {
     AwaitingApproval,
     Executing,
     Reviewing,
+    PendingCompletion,
     Completed,
     Failed,
     Cancelled,
@@ -65,6 +66,7 @@ pub struct Task {
     pub revision_count: i32,
     pub definition_of_done: Option<String>,
     pub cancel_reason: Option<String>,
+    pub completion_note: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

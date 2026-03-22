@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::{Json, Router, routing::{get, post}};
+use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -466,6 +467,31 @@ async fn execute_issue(
     Ok(Json(json!({ "data": task })))
 }
 
+#[derive(Deserialize)]
+struct ConfirmCompletionBody {
+    note: Option<String>,
+}
+
+async fn confirm_completion(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ConfirmCompletionBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let task = service::confirm_completion(&state.pool, id, body.note.as_deref()).await?;
+
+    // Factrail 送信 + スプリント自動遷移（バックグラウンド）
+    let pool = state.pool.clone();
+    let ws_hub = state.ws_hub.clone();
+    let task_id = task.id;
+    tokio::spawn(async move {
+        crate::executor::pipeline::send_task_fact_pub(&pool, task_id, "completed").await;
+        crate::executor::pipeline::check_sprint_auto_transition_pub(&pool, &ws_hub, task_id).await;
+    });
+
+    Ok(Json(json!({ "data": task })))
+}
+
 async fn request_revision(
     State(state): State<AppState>,
     _auth: AuthUser,
@@ -506,4 +532,5 @@ pub fn routes() -> Router<AppState> {
         .route("/{id}/approve-plan", post(approve_plan))
         .route("/{id}/reject-plan", post(reject_plan))
         .route("/{id}/request-revision", post(request_revision))
+        .route("/{id}/confirm-completion", post(confirm_completion))
 }

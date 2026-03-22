@@ -9,6 +9,7 @@ const statusConfig: Record<TaskStatus, { label: string; className: string }> = {
   awaiting_approval: { label: "承認待ち", className: "bg-gh-orange/20 text-gh-orange" },
   executing: { label: "Executing", className: "bg-gh-orange/20 text-gh-orange" },
   reviewing: { label: "Reviewing", className: "bg-gh-purple/15 text-gh-purple" },
+  pending_completion: { label: "完了確認待ち", className: "bg-gh-green/10 text-gh-green/80 ring-1 ring-gh-green/30" },
   completed: { label: "Completed", className: "bg-gh-green/15 text-gh-green" },
   failed: { label: "Failed", className: "bg-gh-red/15 text-gh-red" },
   cancelled: { label: "Cancelled", className: "bg-gh-text-muted/15 text-gh-text-muted" },

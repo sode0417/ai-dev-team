@@ -816,9 +816,9 @@ async fn run_coder_to_pr(
 
     if !worktree::has_changes(wt_path).await.unwrap_or(false) {
         log(pool, session_id, "pr", 1, "warn", "変更なし — PR スキップ").await;
-        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, None, None, None, None, None).await;
+        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::PendingCompletion, None, None, None, None, None).await;
         let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
-        broadcast(ws_hub, task_id, "completed", "完了（変更なし）").await;
+        broadcast(ws_hub, task_id, "pending_completion", "完了確認待ち（変更なし）").await;
     } else {
         // commit 前に diff stats を取得
         let diff_stats = worktree::get_diff_stats_unstaged(wt_path).await.unwrap_or_default();
@@ -835,11 +835,11 @@ async fn run_coder_to_pr(
 
                 log(pool, session_id, "pr", 1, "info", &format!("PR 作成完了: {pr_url}")).await;
                 let _ = task_service::update_task_execution(
-                    pool, task_id, TaskStatus::Completed, None, Some(&pr_url),
+                    pool, task_id, TaskStatus::PendingCompletion, None, Some(&pr_url),
                     Some(&files_json), Some(&diff_stats), None,
                 ).await;
                 let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
-                broadcast(ws_hub, task_id, "completed", &format!("完了: {pr_url}")).await;
+                broadcast(ws_hub, task_id, "pending_completion", &format!("完了確認待ち: {pr_url}")).await;
             }
             Err(e) => {
                 fail_pipeline(pool, ws_hub, task_id, session_id, repo_path, worktree_dir, &e).await;
@@ -851,8 +851,7 @@ async fn run_coder_to_pr(
     // PR作成タスクではワークツリーを保持（修正依頼に備える）
     // ワークツリーは PR マージ後にバックグラウンドタスクで自動削除される
     ws_hub.remove_channel(&task_id).await;
-    send_task_fact(pool, task_id, "completed").await;
-    check_sprint_auto_transition(pool, ws_hub, task_id).await;
+    // send_task_fact / check_sprint_auto_transition はユーザーの完了確認時に実行
 }
 
 /// 修正依頼パイプライン: 既存ワークツリーで Coder→Reviewer→Test→QA→commit+push
@@ -1157,9 +1156,9 @@ pub async fn run_revision_phase(
 
     if !worktree::has_changes(&wt_path).await.unwrap_or(false) {
         log(pool, session_id, "pr", 1, "warn", "変更なし — コミットスキップ").await;
-        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, None, None, None, None, None).await;
+        let _ = task_service::update_task_execution(pool, task_id, TaskStatus::PendingCompletion, None, None, None, None, None).await;
         let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
-        broadcast(ws_hub, task_id, "completed", "修正完了（変更なし）").await;
+        broadcast(ws_hub, task_id, "pending_completion", "完了確認待ち（変更なし）").await;
     } else {
         let truncated: String = instructions.chars().take(60).collect();
         let commit_msg = format!("fix: {truncated}");
@@ -1172,11 +1171,11 @@ pub async fn run_revision_phase(
 
                 log(pool, session_id, "pr", 1, "info", "修正コミット & プッシュ完了").await;
                 let _ = task_service::update_task_execution(
-                    pool, task_id, TaskStatus::Completed, None, None,
+                    pool, task_id, TaskStatus::PendingCompletion, None, None,
                     Some(&files_json), Some(&diff_stats), None,
                 ).await;
                 let _ = exec_service::update_session(pool, session_id, "completed", None, None, None, None, None).await;
-                broadcast(ws_hub, task_id, "completed", "修正完了: PR が更新されました").await;
+                broadcast(ws_hub, task_id, "pending_completion", "完了確認待ち: PR が更新されました").await;
             }
             Err(e) => {
                 fail_revision(pool, ws_hub, task_id, session_id, &e).await;
@@ -1186,8 +1185,7 @@ pub async fn run_revision_phase(
     }
 
     ws_hub.remove_channel(&task_id).await;
-    send_task_fact(pool, task_id, "completed").await;
-    check_sprint_auto_transition(pool, ws_hub, task_id).await;
+    // send_task_fact / check_sprint_auto_transition はユーザーの完了確認時に実行
 }
 
 /// 修正パイプライン失敗（ワークツリーは保持する）
@@ -1258,15 +1256,14 @@ async fn run_investigation(
 
     let report = result.stdout.clone();
     log(pool, session_id, "investigation", 1, "info", &format!("調査完了: {}bytes", report.len())).await;
-    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, Some(&report), None, None, None, None).await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::PendingCompletion, Some(&report), None, None, None, None).await;
     let _ = exec_service::update_session(pool, session_id, "completed", Some(&report), None, None, None, None).await;
-    broadcast(ws_hub, task_id, "completed", "調査完了").await;
+    broadcast(ws_hub, task_id, "pending_completion", "完了確認待ち（調査完了）").await;
 
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
-    send_task_fact(pool, task_id, "completed").await;
-    check_sprint_auto_transition(pool, ws_hub, task_id).await;
+    // send_task_fact / check_sprint_auto_transition はユーザーの完了確認時に実行
 }
 
 /// 操作タスク: Claude autonomous で gh コマンド等を実行 → 結果を plan に保存 → 完了 (PR なし)
@@ -1316,14 +1313,23 @@ async fn run_operation(
 
     let report = result.stdout.clone();
     log(pool, session_id, "operation", 1, "info", &format!("操作完了: {}bytes", report.len())).await;
-    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Completed, Some(&report), None, None, None, None).await;
+    let _ = task_service::update_task_execution(pool, task_id, TaskStatus::PendingCompletion, Some(&report), None, None, None, None).await;
     let _ = exec_service::update_session(pool, session_id, "completed", Some(&report), None, None, None, None).await;
-    broadcast(ws_hub, task_id, "completed", "操作完了").await;
+    broadcast(ws_hub, task_id, "pending_completion", "完了確認待ち（操作完了）").await;
 
     // Cleanup
     let _ = worktree::cleanup_worktree(repo_path, worktree_dir).await;
     ws_hub.remove_channel(&task_id).await;
-    send_task_fact(pool, task_id, "completed").await;
+    // send_task_fact / check_sprint_auto_transition はユーザーの完了確認時に実行
+}
+
+/// handler から呼び出す public ラッパー
+pub async fn send_task_fact_pub(pool: &PgPool, task_id: Uuid, status: &str) {
+    send_task_fact(pool, task_id, status).await;
+}
+
+/// handler から呼び出す public ラッパー
+pub async fn check_sprint_auto_transition_pub(pool: &PgPool, ws_hub: &WsHub, task_id: Uuid) {
     check_sprint_auto_transition(pool, ws_hub, task_id).await;
 }
 
