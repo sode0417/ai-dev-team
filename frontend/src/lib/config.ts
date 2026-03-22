@@ -8,7 +8,8 @@ function getApiBase(): string {
     );
     return `${window.location.protocol}//${apiHost}`;
   }
-  return "http://localhost:8100";
+  // ローカルでは rewrites プロキシ経由（Cookie 同一オリジン化）
+  return "";
 }
 
 export const API_BASE = getApiBase();
