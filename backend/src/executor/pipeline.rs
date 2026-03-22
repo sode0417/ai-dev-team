@@ -1511,3 +1511,189 @@ fn extract_plan_questions(plan_output: &str) -> Vec<HearingQuestion> {
     // JSON ブロックを探す
     parse_questions(section)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    // --- truncate ---
+
+    #[test]
+    fn test_truncate_short_string() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_exact_length() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long_string() {
+        assert_eq!(truncate("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_multibyte() {
+        // "あいう" = 9 bytes (3 bytes each)
+        let s = "あいう";
+        let result = truncate(s, 4);
+        assert_eq!(result, "あ"); // 3 bytes boundary
+    }
+
+    #[test]
+    fn test_truncate_empty() {
+        assert_eq!(truncate("", 10), "");
+    }
+
+    // --- parse_verdict ---
+
+    #[test]
+    fn test_parse_verdict_approve() {
+        let output = "Some review text\nVERDICT: APPROVE\n";
+        assert_eq!(parse_verdict(output), "APPROVE");
+    }
+
+    #[test]
+    fn test_parse_verdict_request_changes() {
+        let output = "Some review text\nVERDICT: REQUEST_CHANGES\n";
+        assert_eq!(parse_verdict(output), "REQUEST_CHANGES");
+    }
+
+    #[test]
+    fn test_parse_verdict_case_insensitive() {
+        let output = "verdict: approve";
+        assert_eq!(parse_verdict(output), "APPROVE");
+    }
+
+    #[test]
+    fn test_parse_verdict_default_safe_side() {
+        let output = "no verdict here";
+        assert_eq!(parse_verdict(output), "REQUEST_CHANGES");
+    }
+
+    #[test]
+    fn test_parse_verdict_empty() {
+        assert_eq!(parse_verdict(""), "REQUEST_CHANGES");
+    }
+
+    // --- parse_test_verdict ---
+
+    #[test]
+    fn test_parse_test_verdict_pass() {
+        let output = "All tests passed\nVERDICT: PASS\n";
+        assert_eq!(parse_test_verdict(output), "PASS");
+    }
+
+    #[test]
+    fn test_parse_test_verdict_fail() {
+        let output = "Tests failed\nVERDICT: FAIL\n";
+        assert_eq!(parse_test_verdict(output), "FAIL");
+    }
+
+    #[test]
+    fn test_parse_test_verdict_default_safe_side() {
+        let output = "no verdict";
+        assert_eq!(parse_test_verdict(output), "FAIL");
+    }
+
+    // --- parse_qa_verdict ---
+
+    #[test]
+    fn test_parse_qa_verdict_pass() {
+        let output = "QA check OK\nVERDICT: PASS";
+        assert_eq!(parse_qa_verdict(output), "PASS");
+    }
+
+    #[test]
+    fn test_parse_qa_verdict_fail() {
+        let output = "QA issues found\nVERDICT: FAIL";
+        assert_eq!(parse_qa_verdict(output), "FAIL");
+    }
+
+    #[test]
+    fn test_parse_qa_verdict_default_safe_side() {
+        assert_eq!(parse_qa_verdict(""), "FAIL");
+    }
+
+    // --- has_frontend_changes ---
+
+    #[test]
+    fn test_has_frontend_changes_true() {
+        assert!(has_frontend_changes("frontend/src/app/page.tsx\nbackend/src/main.rs"));
+        assert!(has_frontend_changes("some/file.tsx"));
+        assert!(has_frontend_changes("styles.css"));
+        assert!(has_frontend_changes("index.html"));
+    }
+
+    #[test]
+    fn test_has_frontend_changes_false() {
+        assert!(!has_frontend_changes("backend/src/main.rs\nbackend/Cargo.toml"));
+        assert!(!has_frontend_changes(""));
+    }
+
+    // --- build_pr_body ---
+
+    #[test]
+    fn test_build_pr_body_minimal() {
+        let body = build_pr_body("fix bug", "", None);
+        assert!(body.contains("## 概要"));
+        assert!(body.contains("fix bug"));
+        assert!(!body.contains("## 変更内容"));
+    }
+
+    #[test]
+    fn test_build_pr_body_with_diff_stats() {
+        let body = build_pr_body("fix bug", " 2 files changed\n", None);
+        assert!(body.contains("## 変更内容"));
+        assert!(body.contains("2 files changed"));
+    }
+
+    #[test]
+    fn test_build_pr_body_with_session() {
+        let session = ExecutionSession {
+            id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(),
+            attempt: 1,
+            status: "completed".to_string(),
+            worktree_path: None,
+            branch_name: None,
+            plan_output: None,
+            review_output: Some("Looks good".to_string()),
+            review_verdict: Some("APPROVE".to_string()),
+            test_output: Some("All 5 tests passed".to_string()),
+            test_passed: Some(true),
+            qa_output: None,
+            qa_passed: Some(true),
+            qa_screenshots: None,
+            revision_instructions: None,
+            started_at: Utc::now(),
+            completed_at: None,
+        };
+
+        let body = build_pr_body("new feature", "1 file changed", Some(&session));
+        assert!(body.contains("テスト: **PASS**"));
+        assert!(body.contains("QA: **PASS**"));
+        assert!(body.contains("Review: **APPROVE**"));
+    }
+
+    // --- build_dod_section ---
+
+    #[test]
+    fn test_build_dod_section_none() {
+        assert_eq!(build_dod_section(&None), "");
+    }
+
+    #[test]
+    fn test_build_dod_section_empty() {
+        assert_eq!(build_dod_section(&Some("  ".to_string())), "");
+    }
+
+    #[test]
+    fn test_build_dod_section_with_content() {
+        let result = build_dod_section(&Some("- API returns 200".to_string()));
+        assert!(result.contains("完了条件"));
+        assert!(result.contains("API returns 200"));
+    }
+}

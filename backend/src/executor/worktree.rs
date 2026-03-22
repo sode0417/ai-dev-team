@@ -370,3 +370,33 @@ pub async fn get_changed_files(worktree_path: &str) -> Result<Vec<String>, Strin
         .map(|l| l.to_string())
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_excluded_playwright() {
+        assert!(is_excluded(".playwright-mcp/some-file"));
+        assert!(is_excluded("path/to/.playwright-mcp/file"));
+    }
+
+    #[test]
+    fn test_is_excluded_qa_screenshots() {
+        assert!(is_excluded("data/qa-screenshots/img.png"));
+    }
+
+    #[test]
+    fn test_is_excluded_package_lock() {
+        assert!(is_excluded("package-lock.json"));
+        assert!(is_excluded("frontend/package-lock.json"));
+    }
+
+    #[test]
+    fn test_is_excluded_normal_files() {
+        assert!(!is_excluded("src/main.rs"));
+        assert!(!is_excluded("frontend/src/app/page.tsx"));
+        assert!(!is_excluded("package.json"));
+        assert!(!is_excluded("Cargo.lock"));
+    }
+}
