@@ -603,16 +603,26 @@ async fn run_coder_to_pr(
 
     log(pool, session_id, "coder", 1, "info", "コード実装完了").await;
 
-    // === Reviewer (max 2 iterations) ===
+    // === Reviewer (max 3 iterations with DoD check) ===
     if !skip_review {
         broadcast(ws_hub, task_id, "reviewing", "Reviewer Agent 起動中...").await;
         let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Reviewing, None, None, None, None, None).await;
 
-        for iteration in 1..=2 {
+        let has_dod = dod.as_ref().map_or(false, |d| !d.trim().is_empty());
+        let max_review_iterations = if has_dod { 3 } else { 2 };
+
+        for iteration in 1..=max_review_iterations {
             log(pool, session_id, "reviewer", iteration, "info", &format!("レビュー iteration {iteration}")).await;
 
             let diff = get_diff_output(wt_path).await;
             let reviewer_dod = build_dod_section(&dod);
+            let dod_check_instruction = if has_dod {
+                "\n- 完了条件 (DoD) の各項目が満たされているか検証し、以下の JSON 形式で出力:\n  \
+                 DOD_CHECK: {\"items\": [{\"condition\": \"条件\", \"met\": true/false, \"reason\": \"理由\"}], \"all_met\": true/false}\n  \
+                 ※ DOD_CHECK 行は VERDICT 行の前に出力すること"
+            } else {
+                ""
+            };
             let reviewer_prompt = format!(
                 "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
                 ## タスク\n\
@@ -622,7 +632,7 @@ async fn run_coder_to_pr(
                 ```\n{diff}\n```\n\n\
                 ## 指示\n\
                 - コード品質、バグ、セキュリティの観点でレビュー\n\
-                - 完了条件がある場合は、すべての条件が満たされているか確認\n\
+                - 完了条件がある場合は、すべての条件が満たされているか確認{dod_check_instruction}\n\
                 - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
             );
 
@@ -635,17 +645,38 @@ async fn run_coder_to_pr(
             };
 
             let verdict = parse_verdict(&review.stdout);
-            log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}")).await;
+            let dod_check = if has_dod { parse_dod_check(&review.stdout) } else { None };
+            let dod_all_met = dod_check.as_ref().map_or(true, |c| c.all_met);
+
+            log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}, DoD met: {dod_all_met}")).await;
             let _ = exec_service::update_session(pool, session_id, "running", None, Some(&review.stdout), Some(&verdict), None, None).await;
 
-            if verdict == "APPROVE" || iteration == 2 {
+            if (verdict == "APPROVE" && dod_all_met) || iteration == max_review_iterations {
                 break;
             }
 
-            // REQUEST_CHANGES → Coder で修正
+            // REQUEST_CHANGES or DoD unmet → Coder で修正
+            let dod_feedback = if !dod_all_met {
+                if let Some(ref check) = dod_check {
+                    let unmet: Vec<String> = check.items.iter()
+                        .filter(|item| !item.met)
+                        .map(|item| format!("- {}: {}", item.condition, item.reason))
+                        .collect();
+                    if !unmet.is_empty() {
+                        format!("\n\n## 未達の完了条件\n{}", unmet.join("\n"))
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+
             broadcast(ws_hub, task_id, "executing", &format!("修正中 (iteration {iteration})...")).await;
             let fix_prompt = format!(
-                "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+                "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}{dod_feedback}\n\n修正のみ行い、余計な変更はしないでください。",
                 review.stdout
             );
             let _ = run_claude_autonomous_with_retry(&fix_prompt, wt_path, timeout::FIX_SECS).await;
@@ -928,15 +959,25 @@ pub async fn run_revision_phase(
 
     log(pool, session_id, "coder", 1, "info", "修正コード実装完了").await;
 
-    // === Reviewer ===
+    // === Reviewer (max 3 iterations with DoD check) ===
     broadcast(ws_hub, task_id, "reviewing", "修正: Reviewer Agent 起動中...").await;
     let _ = task_service::update_task_execution(pool, task_id, TaskStatus::Reviewing, None, None, None, None, None).await;
 
-    for iteration in 1..=2 {
+    let has_dod = dod.as_ref().map_or(false, |d| !d.trim().is_empty());
+    let max_review_iterations: i32 = if has_dod { 3 } else { 2 };
+
+    for iteration in 1..=max_review_iterations {
         log(pool, session_id, "reviewer", iteration, "info", &format!("修正レビュー iteration {iteration}")).await;
 
         let diff = get_diff_output(&wt_path).await;
         let reviewer_dod = build_dod_section(&dod);
+        let dod_check_instruction = if has_dod {
+            "\n- 完了条件 (DoD) の各項目が満たされているか検証し、以下の JSON 形式で出力:\n  \
+             DOD_CHECK: {\"items\": [{\"condition\": \"条件\", \"met\": true/false, \"reason\": \"理由\"}], \"all_met\": true/false}\n  \
+             ※ DOD_CHECK 行は VERDICT 行の前に出力すること"
+        } else {
+            ""
+        };
         let reviewer_prompt = format!(
             "あなたは Reviewer Agent です。以下の diff をレビューしてください。\n\n\
             ## タスク\n\
@@ -949,7 +990,7 @@ pub async fn run_revision_phase(
             ## 指示\n\
             - コード品質、バグ、セキュリティの観点でレビュー\n\
             - 修正依頼の内容が適切に反映されているか確認\n\
-            - 完了条件がある場合は、すべての条件が満たされているか確認\n\
+            - 完了条件がある場合は、すべての条件が満たされているか確認{dod_check_instruction}\n\
             - 最終行に必ず VERDICT: APPROVE または VERDICT: REQUEST_CHANGES を出力"
         );
 
@@ -962,16 +1003,37 @@ pub async fn run_revision_phase(
         };
 
         let verdict = parse_verdict(&review.stdout);
-        log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}")).await;
+        let dod_check = if has_dod { parse_dod_check(&review.stdout) } else { None };
+        let dod_all_met = dod_check.as_ref().map_or(true, |c| c.all_met);
+
+        log(pool, session_id, "reviewer", iteration, "info", &format!("Verdict: {verdict}, DoD met: {dod_all_met}")).await;
         let _ = exec_service::update_session(pool, session_id, "running", None, Some(&review.stdout), Some(&verdict), None, None).await;
 
-        if verdict == "APPROVE" || iteration == 2 {
+        if (verdict == "APPROVE" && dod_all_met) || iteration == max_review_iterations {
             break;
         }
 
+        let dod_feedback = if !dod_all_met {
+            if let Some(ref check) = dod_check {
+                let unmet: Vec<String> = check.items.iter()
+                    .filter(|item| !item.met)
+                    .map(|item| format!("- {}: {}", item.condition, item.reason))
+                    .collect();
+                if !unmet.is_empty() {
+                    format!("\n\n## 未達の完了条件\n{}", unmet.join("\n"))
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         broadcast(ws_hub, task_id, "executing", &format!("修正中 (iteration {iteration})...")).await;
         let fix_prompt = format!(
-            "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}\n\n修正のみ行い、余計な変更はしないでください。",
+            "レビューで修正が指摘されました。以下のレビューコメントに基づいて修正してください:\n\n{}{dod_feedback}\n\n修正のみ行い、余計な変更はしないでください。",
             review.stdout
         );
         let _ = claude_cli::run_claude_autonomous(&fix_prompt, &wt_path, 600).await;
@@ -1443,6 +1505,33 @@ fn parse_verdict(output: &str) -> String {
     "REQUEST_CHANGES".to_string() // デフォルトは安全側（パース失敗時）
 }
 
+/// DOD_CHECK JSON をパース
+#[derive(Debug, serde::Deserialize)]
+struct DodCheck {
+    items: Vec<DodCheckItem>,
+    all_met: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DodCheckItem {
+    condition: String,
+    met: bool,
+    reason: String,
+}
+
+fn parse_dod_check(output: &str) -> Option<DodCheck> {
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if let Some(json_start) = trimmed.find("DOD_CHECK:") {
+            let json_str = trimmed[json_start + "DOD_CHECK:".len()..].trim();
+            if let Ok(check) = serde_json::from_str::<DodCheck>(json_str) {
+                return Some(check);
+            }
+        }
+    }
+    None
+}
+
 fn parse_test_verdict(output: &str) -> String {
     for line in output.lines().rev() {
         let line = line.trim().to_uppercase();
@@ -1755,5 +1844,36 @@ mod tests {
         let result = build_dod_section(&Some("- API returns 200".to_string()));
         assert!(result.contains("完了条件"));
         assert!(result.contains("API returns 200"));
+    }
+
+    // --- parse_dod_check ---
+
+    #[test]
+    fn test_parse_dod_check_valid() {
+        let output = "Review looks good.\nDOD_CHECK: {\"items\": [{\"condition\": \"API returns 200\", \"met\": true, \"reason\": \"Implemented\"}, {\"condition\": \"Tests pass\", \"met\": false, \"reason\": \"No tests added\"}], \"all_met\": false}\nVERDICT: REQUEST_CHANGES";
+        let check = parse_dod_check(output).unwrap();
+        assert!(!check.all_met);
+        assert_eq!(check.items.len(), 2);
+        assert!(check.items[0].met);
+        assert!(!check.items[1].met);
+    }
+
+    #[test]
+    fn test_parse_dod_check_all_met() {
+        let output = "DOD_CHECK: {\"items\": [{\"condition\": \"Done\", \"met\": true, \"reason\": \"OK\"}], \"all_met\": true}\nVERDICT: APPROVE";
+        let check = parse_dod_check(output).unwrap();
+        assert!(check.all_met);
+    }
+
+    #[test]
+    fn test_parse_dod_check_missing() {
+        let output = "No DOD check here\nVERDICT: APPROVE";
+        assert!(parse_dod_check(output).is_none());
+    }
+
+    #[test]
+    fn test_parse_dod_check_invalid_json() {
+        let output = "DOD_CHECK: {invalid json}\nVERDICT: REQUEST_CHANGES";
+        assert!(parse_dod_check(output).is_none());
     }
 }
