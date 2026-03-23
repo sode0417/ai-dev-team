@@ -12,7 +12,7 @@ const SPRINT_COLS: &str = "id, project_id, status, scan_analysis, priority_actio
 const TASK_COLS: &str = "id, project_id, repository_id, title, description, status, priority, \
     depends_on, execution_order, execution_group, proposed_by, plan, pr_url, changed_files, diff_stats, \
     retry_count, max_retries, error_log, created_at, started_at, completed_at, updated_at, \
-    scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason";
+    scan_id, proposal_type, sprint_id, issue_number, issue_url, merge_status, merge_attempted_at, revision_count, definition_of_done, cancel_reason, completion_note";
 
 /// スプリント作成
 pub async fn create_sprint(pool: &PgPool, project_id: Uuid) -> Result<Sprint, AppError> {
