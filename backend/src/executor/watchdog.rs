@@ -63,7 +63,7 @@ async fn recover_stuck_tasks(
     // planning, executing, reviewing 状態のタスクを検索
     let stuck_tasks: Vec<(Uuid, String, String, Option<Uuid>)> = if let Some(age) = min_age_secs {
         sqlx::query_as(
-            "SELECT id, title, status, sprint_id FROM tasks \
+            "SELECT id, title, status::TEXT, sprint_id FROM tasks \
              WHERE status IN ('planning', 'executing', 'reviewing') \
              AND started_at < NOW() - make_interval(secs => $1)",
         )
@@ -73,7 +73,7 @@ async fn recover_stuck_tasks(
         .map_err(|e| format!("タスク検索失敗: {e}"))?
     } else {
         sqlx::query_as(
-            "SELECT id, title, status, sprint_id FROM tasks \
+            "SELECT id, title, status::TEXT, sprint_id FROM tasks \
              WHERE status IN ('planning', 'executing', 'reviewing')",
         )
         .fetch_all(pool)
