@@ -12,7 +12,7 @@ function getWsBase(): string {
     );
     return `${protocol}//${apiHost}`;
   }
-  return "ws://localhost:8100";
+  return "ws://localhost:3031";
 }
 
 const WS_BASE = getWsBase();

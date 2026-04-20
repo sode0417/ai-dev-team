@@ -7,15 +7,15 @@ PM Agent 主導の自律型開発チーム管理システム。スプリント�
 - **Backend**: Rust / Axum + SQLx + PostgreSQL
 - **Frontend**: Next.js + Tailwind CSS
 - **実行**: Claude Code CLI (`claude -p`) パイプライン
-- **デプロイ**: Mac mini, Backend:8100 / Frontend:3100
+- **デプロイ**: Mac mini, Backend:3031 / Frontend:3030
 - **Tunnel**: `devteam.sode-ai.com`
 
 ## アーキテクチャ
 
 ```
-Web UI (Next.js :3100)
+Web UI (Next.js :3030)
   ↓ REST API / WebSocket
-Backend (Axum :8100)
+Backend (Axum :3031)
   ├── Projects / Sprints / Tasks / Executions CRUD
   ├── PM Agent スキャン → タスク提案
   ├── スプリントサイクル (selecting → hearing → planning → executing → retrospective)
@@ -81,14 +81,14 @@ frontend/
 ## 環境変数
 
 - `DATABASE_URL` — PostgreSQL 接続文字列 (`postgres://ai_dev_team:...@localhost/ai_dev_team`)
-- `PORT` — Backend ポート (デフォルト: 8100)
+- `PORT` — Backend ポート (デフォルト: 3031)
 - `AUTH_ENABLED` — 認証有効化 (`true`/`false`, デフォルト: `false`)
 - `JWT_SECRET` — JWT 署名鍵（AUTH_ENABLED=true 時は必須）
-- `ALLOWED_ORIGINS` — CORS 許可オリジン（カンマ区切り、デフォルト: `http://localhost:3100`）
+- `ALLOWED_ORIGINS` — CORS 許可オリジン（カンマ区切り、デフォルト: `http://localhost:3030`）
 - `GOOGLE_CLIENT_ID` — Google OAuth クライアント ID（任意）
 - `GOOGLE_CLIENT_SECRET` — Google OAuth クライアントシークレット
-- `GOOGLE_CALLBACK_URL` — Google OAuth コールバック URL（デフォルト: `http://localhost:8100/api/auth/google/callback`）
-- `WEB_URL` — フロントエンド URL（OAuth コールバック後のリダイレクト先、デフォルト: `http://localhost:3100`）
+- `GOOGLE_CALLBACK_URL` — Google OAuth コールバック URL（デフォルト: `http://localhost:3031/api/auth/google/callback`）
+- `WEB_URL` — フロントエンド URL（OAuth コールバック後のリダイレクト先、デフォルト: `http://localhost:3030`）
 - `COOKIE_DOMAIN` — JWT Cookie のドメイン（SSO 用、例: `.sode-ai.com`）
 - `API_KEYS` — サービス間通信用 API キー（カンマ区切り）
 - `FACTRAIL_URL` — Factrail API のベース URL（任意、設定時に Fact 送信が有効化）

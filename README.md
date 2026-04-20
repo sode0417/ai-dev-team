@@ -23,7 +23,7 @@ graph TB
     end
 
     subgraph Backend
-        API[REST API + WebSocket<br/>Axum :8100]
+        API[REST API + WebSocket<br/>Axum :3031]
         PM[PM Agent<br/>Scanner / Planner]
         EX[Executor<br/>claude -p Pipeline]
     end
@@ -118,7 +118,7 @@ cp .env.example .env
 cargo run
 ```
 
-Backend が http://localhost:8100 で起動します。
+Backend が http://localhost:3031 で起動します。
 
 ### 5. Frontend Setup
 
@@ -135,7 +135,7 @@ Frontend が http://localhost:3000 で起動します。
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
 | `DATABASE_URL` | Yes | PostgreSQL 接続文字列 | — |
-| `PORT` | No | Backend ポート番号 | `8100` |
+| `PORT` | No | Backend ポート番号 | `3031` |
 | `GITHUB_TOKEN` | No | GitHub API トークン (スキャン機能に必要) | — |
 
 ## API Endpoints
